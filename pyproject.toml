@@ -1,0 +1,19 @@
+[project]
+name = "aria-model"
+version = "0.1.0"
+description = "Aria Compute model quantization toolkit (Hadamard + codebook)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "pyyaml>=6.0",
+  "safetensors>=0.4",
+  "huggingface_hub>=0.20",
+]
+
+[project.optional-dependencies]
+hf = ["torch", "transformers"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["common*"]
