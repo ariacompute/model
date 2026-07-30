@@ -66,15 +66,20 @@ class BundleWriter:
             off: dict[str, list[int]] = {}
             off["packed_indices"] = list(self._write(obj.packed_indices))
             off["codebook"] = list(self._write(_f16_bytes(obj.codebook)))
-            off["input_scale"] = list(self._write(_f16_bytes(obj.input_scale)))
-            off["input_scale_recip"] = list(self._write(_f16_bytes(obj.input_scale_recip)))
-            off["norms"] = list(self._write(_f16_bytes(obj.norms)))
+            # Optional legacy aux — only write when non-empty (old per-channel dumps).
+            if obj.input_scale.size:
+                off["input_scale"] = list(self._write(_f16_bytes(obj.input_scale)))
+            if obj.input_scale_recip.size:
+                off["input_scale_recip"] = list(self._write(_f16_bytes(obj.input_scale_recip)))
+            if obj.norms.size:
+                off["norms"] = list(self._write(_f16_bytes(obj.norms)))
             self.tensor_meta[name] = {
                 "kind": "codebook",
                 "bits": obj.bits,
                 "group_size": obj.group_size,
                 "shape": [int(obj.shape[0]), int(obj.shape[1])],
                 "row_pad": int(obj.row_pad),
+                "codebook_share": getattr(obj, "codebook_share", "group"),
                 "hadamard": dict(obj.hadamard_meta),
                 "offsets": off,
             }
@@ -183,18 +188,46 @@ def load_bundle(out_dir: str | Path) -> tuple[dict, dict[str, QuantTensor | np.n
             bits = int(meta["bits"])
             gs = int(meta["group_size"])
             k, n = shape
+            share = meta.get("codebook_share")
             cb_raw = seg("codebook")
             kc = 1 << bits
             if len(cb_raw) % 2 != 0:
                 raise FormatError(f"codebook byte length odd for {name}")
             n_elem = len(cb_raw) // 2
-            if n * kc == 0 or n_elem % (n * kc) != 0:
-                raise ShapeMismatchError(f"cannot infer groups for {name}")
-            num_groups = n_elem // (n * kc)
-            codebook = np.frombuffer(cb_raw, dtype=np.float16).reshape(num_groups, n, kc).copy()
-            scales = np.frombuffer(seg("input_scale"), dtype=np.float16).reshape(num_groups, n).copy()
-            recip = np.frombuffer(seg("input_scale_recip"), dtype=np.float16).reshape(num_groups, n).copy()
-            norms = np.frombuffer(seg("norms"), dtype=np.float16).reshape(num_groups, n).copy()
+            empty = np.zeros((0,), dtype=np.float16)
+            if share is None:
+                # Legacy: infer from byte size.
+                if n * kc and n_elem % (n * kc) == 0:
+                    share = "channel"
+                elif n_elem % kc == 0:
+                    share = "group"
+                else:
+                    raise ShapeMismatchError(f"cannot infer codebook layout for {name}")
+            if share == "group":
+                if n_elem % kc != 0:
+                    raise ShapeMismatchError(f"bad group codebook size for {name}")
+                num_groups = n_elem // kc
+                codebook = np.frombuffer(cb_raw, dtype=np.float16).reshape(num_groups, kc).copy()
+            else:
+                if n * kc == 0 or n_elem % (n * kc) != 0:
+                    raise ShapeMismatchError(f"cannot infer groups for {name}")
+                num_groups = n_elem // (n * kc)
+                codebook = np.frombuffer(cb_raw, dtype=np.float16).reshape(num_groups, n, kc).copy()
+
+            def maybe(key: str, shape_fn) -> np.ndarray:
+                if key not in offsets:
+                    return empty
+                raw = seg(key)
+                if not raw:
+                    return empty
+                return np.frombuffer(raw, dtype=np.float16).reshape(shape_fn()).copy()
+
+            if share == "channel":
+                scales = maybe("input_scale", lambda: (num_groups, n))
+                recip = maybe("input_scale_recip", lambda: (num_groups, n))
+                norms = maybe("norms", lambda: (num_groups, n))
+            else:
+                scales = recip = norms = empty
             packed = seg("packed_indices")
             tensors[name] = QuantTensor(
                 bits=bits,
@@ -207,6 +240,7 @@ def load_bundle(out_dir: str | Path) -> tuple[dict, dict[str, QuantTensor | np.n
                 norms=norms,
                 hadamard_meta=dict(meta.get("hadamard") or {}),
                 row_pad=int(meta.get("row_pad", 0)),
+                codebook_share=share,
             )
         elif kind == "raw":
             s, L = offsets["data"]

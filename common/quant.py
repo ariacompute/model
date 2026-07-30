@@ -59,11 +59,7 @@ def _is_sensitive(name: str) -> bool:
 
 
 def allocate_mixed_bits(layer_names: list[str], target: float) -> dict[str, int]:
-    """Assign per-layer integer bits for mixed-precision targets 2.54 / 3.26.
-
-    Sensitive layers are preferred for the higher bit budget; counts are chosen so
-    the mean bit-width lands in the Spec bands ([2.45,2.65] / [3.15,3.40]).
-    """
+    """Assign per-layer integer bits for mixed-precision targets 2.54 / 3.26."""
     target = parse_bits(target)
     if target not in (2.54, 3.26):
         raise QuantError(f"allocate_mixed_bits expects 2.54 or 3.26, got {target}")
@@ -117,12 +113,13 @@ class QuantTensor:
     group_size: int
     shape: tuple[int, int]
     packed_indices: bytes
-    codebook: np.ndarray  # fp16 (G, N, Kc)
-    input_scale: np.ndarray  # fp16 (G, N)
-    input_scale_recip: np.ndarray  # fp16 (G, N)
-    norms: np.ndarray  # fp16 (G, N)
+    codebook: np.ndarray  # fp16 (G, Kc) or (G, N, Kc)
+    input_scale: np.ndarray
+    input_scale_recip: np.ndarray
+    norms: np.ndarray
     hadamard_meta: dict = field(default_factory=dict)
     row_pad: int = 0
+    codebook_share: str = "group"  # "group" | "channel"
 
 
 def quantize_weight(
@@ -132,16 +129,19 @@ def quantize_weight(
     seed: int | None = None,
     max_iter: int = 50,
     workers: int | None = None,
+    codebook_share: str = "group",
 ) -> QuantTensor:
-    """Core path: Hadamard rotate (axis=0) then per-group Lloyd-Max codebook.
+    """Hadamard (axis=0) + Lloyd-Max codebook.
 
-    Streaming callers must use this function for every 2D weight so algorithm
-    semantics stay identical to an in-memory full-model pass.
+    ``codebook_share=group`` (default): one codebook per row-group — small on disk.
+    ``codebook_share=channel``: per-(group, channel) — higher fidelity, ~3× larger.
     """
     if bits not in (1, 2, 3, 4):
         raise QuantError(f"quantize_weight bits must be 1..4, got {bits}")
     if group_size < 1:
         raise QuantError(f"group_size must be >=1, got {group_size}")
+    if codebook_share not in ("group", "channel"):
+        raise QuantError(f"codebook_share must be 'group' or 'channel', got {codebook_share!r}")
 
     from . import runtime
 
@@ -152,12 +152,9 @@ def quantize_weight(
         raise QuantError("weight contains non-finite values")
 
     k0, n = W.shape
-    # Core feature 1: Hadamard rotation (never skipped; chunked if needed).
     W_rot, hmeta = hadamard.hadamard_rotate(W, axis=0, seed=seed)
     if not hmeta.get("applied"):
-        raise QuantError(
-            f"Hadamard rotation failed to apply for shape {(k0, n)}: {hmeta}"
-        )
+        raise QuantError(f"Hadamard rotation failed to apply for shape {(k0, n)}: {hmeta}")
     del W
     k = W_rot.shape[0]
 
@@ -174,68 +171,81 @@ def quantize_weight(
 
     num_groups = k_work // group_size
     kc = 1 << bits
-    codebooks = np.zeros((num_groups, n, kc), dtype=np.float32)
-    scales = np.zeros((num_groups, n), dtype=np.float32)
-    norms = np.zeros((num_groups, n), dtype=np.float32)
     all_idx = np.zeros((num_groups, group_size, n), dtype=np.uint8)
-
     rng_seed = 0 if seed is None else int(seed)
+    empty = np.zeros((0,), dtype=np.float16)
+
+    if codebook_share == "group":
+        codebooks = np.zeros((num_groups, kc), dtype=np.float32)
+        for g in range(num_groups):
+            sl = slice(g * group_size, (g + 1) * group_size)
+            flat = W_work[sl, :].ravel()
+            cb_vec = cb.lloyd_max(flat, kc, max_iter=max_iter, seed=rng_seed + g * 10007)
+            codebooks[g, :] = cb_vec.astype(np.float32)
+            all_idx[g] = cb.quantize_group(flat, cb_vec).reshape(group_size, n)
+        del W_work
+        return QuantTensor(
+            bits=bits,
+            group_size=group_size,
+            shape=(k0, n),
+            packed_indices=pack.pack_indices(all_idx.reshape(-1), bits),
+            codebook=codebooks.astype(np.float16),
+            input_scale=empty,
+            input_scale_recip=empty,
+            norms=empty,
+            hadamard_meta=hmeta,
+            row_pad=int(hmeta.get("row_pad", 0)) + gpad,
+            codebook_share="group",
+        )
+
+    codebooks = np.zeros((num_groups, n, kc), dtype=np.float32)
     use_cuda = runtime.cuda_available() and n >= 64 and group_size * n * kc < (1 << 28)
     n_workers = workers if workers is not None else runtime.default_workers()
     parallel = (not use_cuda) and n_workers > 1 and num_groups > 2 and (num_groups * n) >= 8192
 
-    def _one_group(g: int) -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        # Core feature 2: Lloyd-Max codebook per (group, channel).
+    def _one_group(g: int) -> tuple[int, np.ndarray, np.ndarray]:
         sl = slice(g * group_size, (g + 1) * group_size)
         block = W_work[sl, :]
         if use_cuda:
-            cbs, sc, nm, idx = cb.lloyd_max_columns_torch(
+            cbs, _sc, _nm, idx = cb.lloyd_max_columns_torch(
                 block, kc, max_iter=max_iter, seed=rng_seed + g * 10007
             )
         else:
-            cbs, sc, nm, idx = cb.lloyd_max_columns(
+            cbs, _sc, _nm, idx = cb.lloyd_max_columns(
                 block, kc, max_iter=max_iter, seed=rng_seed + g * 10007
             )
         if cbs.shape != (n, kc) or idx.shape != (group_size, n):
             raise QuantError(
                 f"Lloyd-Max output shape mismatch: codebook {cbs.shape} indices {idx.shape}"
             )
-        return g, cbs, sc, nm, idx
+        return g, cbs, idx
 
     if not parallel:
         for g in range(num_groups):
-            g_i, cbs, sc, nm, idx = _one_group(g)
+            g_i, cbs, idx = _one_group(g)
             codebooks[g_i] = cbs
-            scales[g_i] = sc
-            norms[g_i] = nm
             all_idx[g_i] = idx
     else:
         from concurrent.futures import ThreadPoolExecutor
 
         with ThreadPoolExecutor(max_workers=n_workers) as pool:
-            for g_i, cbs, sc, nm, idx in pool.map(_one_group, range(num_groups)):
+            for g_i, cbs, idx in pool.map(_one_group, range(num_groups)):
                 codebooks[g_i] = cbs
-                scales[g_i] = sc
-                norms[g_i] = nm
                 all_idx[g_i] = idx
     del W_work
 
-    indices_mat = all_idx.reshape(num_groups * group_size, n)
-    indices_flat = indices_mat.ravel(order="C")
-    packed = pack.pack_indices(indices_flat, bits)
-
-    recip = np.where(scales > 0, 1.0 / scales, 0.0)
     return QuantTensor(
         bits=bits,
         group_size=group_size,
         shape=(k0, n),
-        packed_indices=packed,
+        packed_indices=pack.pack_indices(all_idx.reshape(-1), bits),
         codebook=codebooks.astype(np.float16),
-        input_scale=scales.astype(np.float16),
-        input_scale_recip=recip.astype(np.float16),
-        norms=norms.astype(np.float16),
+        input_scale=empty,
+        input_scale_recip=empty,
+        norms=empty,
         hadamard_meta=hmeta,
         row_pad=int(hmeta.get("row_pad", 0)) + gpad,
+        codebook_share="channel",
     )
 
 
@@ -243,7 +253,21 @@ def dequantize(t: QuantTensor) -> np.ndarray:
     """Reconstruct weight in rotated space, shape = original (K, N)."""
     k0, n = t.shape
     gs = t.group_size
-    num_groups = t.codebook.shape[0]
+    cb_arr = t.codebook.astype(np.float32)
+    share = getattr(t, "codebook_share", None) or (
+        "group" if cb_arr.ndim == 2 else "channel"
+    )
+    if share == "group":
+        if cb_arr.ndim != 2:
+            raise ShapeMismatchError(f"group codebook must be 2D, got {cb_arr.shape}")
+        num_groups = cb_arr.shape[0]
+    else:
+        if cb_arr.ndim != 3:
+            raise ShapeMismatchError(f"channel codebook must be 3D, got {cb_arr.shape}")
+        num_groups, n_cb, kc = cb_arr.shape
+        if n_cb != n or kc != (1 << t.bits):
+            raise ShapeMismatchError(f"codebook shape {cb_arr.shape} incompatible with N={n}")
+
     k_work = num_groups * gs
     expected = k_work * n
     indices = pack.unpack_indices(t.packed_indices, expected, t.bits)
@@ -253,13 +277,14 @@ def dequantize(t: QuantTensor) -> np.ndarray:
         )
     idx_mat = indices.reshape(k_work, n)
     out = np.zeros((k_work, n), dtype=np.float32)
-    kc = 1 << t.bits
-    cb_arr = t.codebook.astype(np.float32)
-    if cb_arr.shape != (num_groups, n, kc):
-        raise ShapeMismatchError(f"codebook shape {cb_arr.shape} != {(num_groups, n, kc)}")
 
-    for g in range(num_groups):
-        rows = slice(g * gs, (g + 1) * gs)
-        for j in range(n):
-            out[rows, j] = cb_arr[g, j, idx_mat[rows, j]]
+    if share == "group":
+        for g in range(num_groups):
+            rows = slice(g * gs, (g + 1) * gs)
+            out[rows, :] = cb_arr[g, idx_mat[rows, :]]
+    else:
+        for g in range(num_groups):
+            rows = slice(g * gs, (g + 1) * gs)
+            for j in range(n):
+                out[rows, j] = cb_arr[g, j, idx_mat[rows, j]]
     return out[:k0, :]

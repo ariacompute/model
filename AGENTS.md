@@ -11,10 +11,10 @@
 
 ## 架构
 `hf_utils`(拉取/流式) → `hadamard` → `codebook`/`quant` → `pack`/`bundle` → 家族脚本。
-位宽：1–4 bit；混合精度 `--bits 2.54` / `3.26`。默认 `group_size=32`。
+位宽：1–4 bit；混合精度 `--bits 2.54` / `3.26`。默认 `group_size=32`、`codebook_share=group`（体积优先；`channel` 可选高精度）。
 
 ## 目录
-- `common/`：共享内核（errors / hadamard / codebook / quant / pack / bundle / hf_utils / cli）
+- `common/`：共享内核（errors / hadamard / codebook / quant / pack / bundle / hf_utils / cli / runtime）
 - `gemma/gemma-4-e2b-it/`：`quantize.py` + `config.yaml`
 - `qwen/qwen3.5-2b/`：同上
 - `tests/`：unittest（Hadamard、码本、pack、混合精度、bundle roundtrip、`--tiny`）
@@ -38,6 +38,6 @@
 见 `task.md`。Spec 见 `requirements.md`（Hadamard + 码本 + Aria bundle）。
 
 ## 注意事项
-- 黄金路径：q4 tiny bundle 写出 → `load_bundle` → `dequantize` 重建误差有界。
-- 非 2 幂行维：pad 到下一 2 幂再裁回，meta 记录 pad。
+- 黄金路径：q4 tiny bundle 写出 → `load_bundle` → `dequantize` 重建误差有界；真实模型默认 `group` 共享码本控制 `weight.bin` 体积。
+- 非 2 幂行维：pad 到下一 2 幂再裁回（可按列分块 FWHT），meta 记录 pad；流式不得跳过 Hadamard/Lloyd-Max。
 - 不做剪枝/蒸馏/GGUF；不做 embedding 专用标量路径 / 跨层可学习旋转吸收；不动 live `engine`。

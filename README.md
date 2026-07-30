@@ -39,6 +39,7 @@ uv pip install torch --index-url https://download.pytorch.org/whl/cu124
 
 export HF_TOKEN=...   # higher Hub rate limits
 python gemma/gemma-4-e2b-it/quantize.py --bits 4 --workers 16
+# ~2.5–3 GB weight.bin expected for Gemma-4-E2B (vs ~8 GB with --codebook-share channel)
 ```
 
 ## CLI flags (both scripts)
@@ -50,6 +51,7 @@ python gemma/gemma-4-e2b-it/quantize.py --bits 4 --workers 16
 | `--group-size` | Codebook group size (default `32`) |
 | `--seed` | Hadamard randomization seed (default `0`) |
 | `--out` | Output directory (default `…/weights/qN` under the family folder) |
+| `--codebook-share` | `group` (default, small) or `channel` (larger, higher fidelity) |
 | `--workers` | Parallel group workers (default: CPU count, max 32) |
 | `--tiny` | Synthetic tiny checkpoint — **no network** |
 | `--config` | Path to alternate `config.yaml` |
@@ -134,6 +136,9 @@ python -m unittest discover -s tests -t .
 - Streaming I/O only limits peak memory; **every 2D weight** still runs full
   **Hadamard rotation (`H @ W`, axis=0)** then **Lloyd-Max codebook quantization**.
   Large matrices use column-chunked FWHT (same math as one-shot `H @ W`), never skip rotation.
+- Default **`--codebook-share group`**: one codebook per row-group (shared across channels) so
+  `weight.bin` ≈ packed 4-bit indices (~2.5 GB for Gemma-4-E2B). Use `--codebook-share channel`
+  for per-channel codebooks (higher fidelity, ~8 GB).
 - Only **2D** weights are codebook-quantized; 1D tensors (e.g. RMSNorm) are stored as raw fp16.
 - Weight product dirs (`**/weights/`, `*.bin`) are gitignored — do not commit multi-GB artifacts.
 - This repo does **not** emit GGUF; live `engine` quant loaders are out of scope for now.

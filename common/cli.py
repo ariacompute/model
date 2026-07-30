@@ -27,6 +27,13 @@ def build_parser(default_bits: float = 4) -> argparse.ArgumentParser:
         default=None,
         help="CPU group workers (default: min(32, cpu_count); H100 box ~16)",
     )
+    p.add_argument(
+        "--codebook-share",
+        choices=("group", "channel"),
+        default=None,
+        help="group=shared codebook per row-group (small, default); "
+        "channel=per-channel codebook (larger, higher fidelity)",
+    )
     return p
 
 
@@ -68,6 +75,7 @@ def quantize_state_dict(
     bits: float,
     group_size: int = 32,
     seed: int | None = None,
+    codebook_share: str = "group",
 ) -> dict[str, quant.QuantTensor | np.ndarray]:
     bits = quant.parse_bits(bits)
     names_2d = [n for n, w in weights.items() if _is_2d_weight(n, w)]
@@ -77,7 +85,11 @@ def quantize_state_dict(
     for name, arr in weights.items():
         if name in bit_map:
             out[name] = quant.quantize_weight(
-                arr, bits=bit_map[name], group_size=group_size, seed=seed
+                arr,
+                bits=bit_map[name],
+                group_size=group_size,
+                seed=seed,
+                codebook_share=codebook_share,
             )
         else:
             out[name] = np.asarray(arr)
@@ -91,13 +103,18 @@ def _process_one(
     group_size: int,
     seed: int | None,
     workers: int | None = None,
+    codebook_share: str = "group",
 ) -> quant.QuantTensor | np.ndarray:
     """Quantize one tensor. 2D weights always go through Hadamard + Lloyd-Max."""
     if name in bit_map:
         obj = quant.quantize_weight(
-            arr, bits=bit_map[name], group_size=group_size, seed=seed, workers=workers
+            arr,
+            bits=bit_map[name],
+            group_size=group_size,
+            seed=seed,
+            workers=workers,
+            codebook_share=codebook_share,
         )
-        # Streaming must not weaken core algorithm guarantees.
         if not obj.hadamard_meta.get("applied"):
             raise QuantError(
                 f"{name}: Hadamard rotation was not applied (streaming invariant broken)"
@@ -118,11 +135,17 @@ def run_quantize(args: argparse.Namespace, family_dir: str, label: str) -> Path:
     group_size = args.group_size or cfg.get("group_size", 32)
     seed = args.seed if args.seed is not None else cfg.get("hadamard_seed", 0)
     workers = args.workers if getattr(args, "workers", None) is not None else runtime.default_workers()
+    codebook_share = (
+        args.codebook_share
+        if getattr(args, "codebook_share", None) is not None
+        else cfg.get("codebook_share", "group")
+    )
     repo = args.model or cfg.get("base_model")
     qlabel = quant.quantization_label(bits)
     out = Path(args.out or str(Path(family_dir) / "weights" / qlabel.replace(".", "_")))
 
     print(f"[{label}] host: {runtime.runtime_summary()}", flush=True)
+    print(f"[{label}] codebook_share={codebook_share}", flush=True)
 
     if args.tiny:
         weights = hf_utils.make_tiny_state_dict(seed=seed or 0)
@@ -139,7 +162,9 @@ def run_quantize(args: argparse.Namespace, family_dir: str, label: str) -> Path:
             hadamard_seed=seed,
         ) as writer:
             for i, (name, arr) in enumerate(weights.items(), 1):
-                obj = _process_one(name, arr, bit_map, group_size, seed, workers=workers)
+                obj = _process_one(
+                    name, arr, bit_map, group_size, seed, workers=workers, codebook_share=codebook_share
+                )
                 writer.add(name, obj)
                 del obj
                 if i % 8 == 0:
@@ -176,7 +201,9 @@ def run_quantize(args: argparse.Namespace, family_dir: str, label: str) -> Path:
         for i, (name, arr) in enumerate(hf_utils.stream_weights(repo), 1):
             shape = tuple(arr.shape)
             print(f"[{label}] [{i}/{total}] {name} {shape}", flush=True)
-            obj = _process_one(name, arr, bit_map, group_size, seed, workers=workers)
+            obj = _process_one(
+                    name, arr, bit_map, group_size, seed, workers=workers, codebook_share=codebook_share
+                )
             del arr
             writer.add(name, obj)
             del obj

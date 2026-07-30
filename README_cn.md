@@ -39,6 +39,7 @@ uv pip install torch --index-url https://download.pytorch.org/whl/cu124
 
 export HF_TOKEN=...   # 提高 Hub 限流
 python gemma/gemma-4-e2b-it/quantize.py --bits 4 --workers 16
+# Gemma-4-E2B 的 weight.bin 约 2.5–3 GB（若 --codebook-share channel 则约 8 GB）
 ```
 
 ## 通用 CLI 参数（两个脚本相同）
@@ -50,6 +51,7 @@ python gemma/gemma-4-e2b-it/quantize.py --bits 4 --workers 16
 | `--group-size` | 码本分组大小（默认 `32`） |
 | `--seed` | Hadamard 随机化种子（默认 `0`） |
 | `--out` | 输出目录（默认写到各家族目录下 `weights/qN`） |
+| `--codebook-share` | `group`（默认，体积小）或 `channel`（更大、精度更高） |
 | `--workers` | 并行 group worker 数（默认 CPU 核数，上限 32） |
 | `--tiny` | 使用合成 tiny checkpoint，**无需联网** |
 | `--config` | 指定其它 `config.yaml` 路径 |
@@ -132,6 +134,7 @@ python -m unittest discover -s tests -t .
 ## 说明
 
 - 流式 I/O 只降低峰值内存；**每张 2D 权重**仍完整执行 **Hadamard 旋转（`H @ W`，axis=0）** 与 **Lloyd-Max 码本量化**。大矩阵用按列分块 FWHT（与一次性 `H @ W` 数学等价），**不会跳过旋转**。
+- 默认 **`--codebook-share group`**：每个 row-group 共用一份码本，`weight.bin` 约等于 4-bit 索引体积（Gemma-4-E2B 约 2.5 GB）。需要更高精度时用 `--codebook-share channel`（约 8 GB）。
 - 仅对 **2D** 权重做码本量化；1D（如 RMSNorm）以 raw fp16 旁路写入。
 - 权重产物目录（`**/weights/`、`*.bin`）已 gitignore，勿提交大文件。
 - 本仓库**不**导出 GGUF；live `engine` 的量化加载器暂不在范围内。
