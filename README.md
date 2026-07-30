@@ -25,6 +25,22 @@ uv pip install -r requirements.txt           # or: pip install -r requirements.t
 
 Core quant path needs **numpy** (+ **pyyaml** for `config.yaml`). Real HF downloads also need **safetensors** and **huggingface_hub**.
 
+### Recommended host (reference)
+
+Validated target for full-model runs: **1× NVIDIA H100**, **16 vCPUs**, **200 GiB RAM** (`gpu-h100-sxm`). On this class of machine the toolkit:
+
+- Auto-sizes Hadamard work buffers from detected RAM (~25%)
+- Uses up to 16 CPU workers for group codebook fitting (`--workers`)
+- Uses **CUDA** batched Lloyd-Max when `torch` + GPU are available (`ARIA_QUANT_FORCE_CPU=1` to disable)
+
+```bash
+# optional CUDA speedup
+uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+export HF_TOKEN=...   # higher Hub rate limits
+python gemma/gemma-4-e2b-it/quantize.py --bits 4 --workers 16
+```
+
 ## CLI flags (both scripts)
 
 | Flag | Description |
@@ -34,6 +50,7 @@ Core quant path needs **numpy** (+ **pyyaml** for `config.yaml`). Real HF downlo
 | `--group-size` | Codebook group size (default `32`) |
 | `--seed` | Hadamard randomization seed (default `0`) |
 | `--out` | Output directory (default `…/weights/qN` under the family folder) |
+| `--workers` | Parallel group workers (default: CPU count, max 32) |
 | `--tiny` | Synthetic tiny checkpoint — **no network** |
 | `--config` | Path to alternate `config.yaml` |
 
@@ -114,6 +131,9 @@ python -m unittest discover -s tests -t .
 
 ## Notes
 
+- Streaming I/O only limits peak memory; **every 2D weight** still runs full
+  **Hadamard rotation (`H @ W`, axis=0)** then **Lloyd-Max codebook quantization**.
+  Large matrices use column-chunked FWHT (same math as one-shot `H @ W`), never skip rotation.
 - Only **2D** weights are codebook-quantized; 1D tensors (e.g. RMSNorm) are stored as raw fp16.
 - Weight product dirs (`**/weights/`, `*.bin`) are gitignored — do not commit multi-GB artifacts.
 - This repo does **not** emit GGUF; live `engine` quant loaders are out of scope for now.

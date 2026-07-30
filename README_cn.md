@@ -25,6 +25,22 @@ uv pip install -r requirements.txt           # 或: pip install -r requirements.
 
 核心量化依赖 **numpy**（读 `config.yaml` 还需 **pyyaml**）。真实 HF 下载另需 **safetensors**、**huggingface_hub**。
 
+### 推荐主机（参考配置）
+
+完整模型量化参考环境：**1× NVIDIA H100**、**16 vCPU**、**200 GiB 内存**（`gpu-h100-sxm`）。在此类机器上工具会：
+
+- 按检测到的内存自动放大 Hadamard 工作缓冲（约 25%）
+- 用最多 16 个 CPU worker 做分组码本（`--workers`）
+- 若已安装 `torch` 且有 GPU，则用 **CUDA** 批量 Lloyd-Max（`ARIA_QUANT_FORCE_CPU=1` 可关闭）
+
+```bash
+# 可选 CUDA 加速
+uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+export HF_TOKEN=...   # 提高 Hub 限流
+python gemma/gemma-4-e2b-it/quantize.py --bits 4 --workers 16
+```
+
 ## 通用 CLI 参数（两个脚本相同）
 
 | 参数 | 说明 |
@@ -34,6 +50,7 @@ uv pip install -r requirements.txt           # 或: pip install -r requirements.
 | `--group-size` | 码本分组大小（默认 `32`） |
 | `--seed` | Hadamard 随机化种子（默认 `0`） |
 | `--out` | 输出目录（默认写到各家族目录下 `weights/qN`） |
+| `--workers` | 并行 group worker 数（默认 CPU 核数，上限 32） |
 | `--tiny` | 使用合成 tiny checkpoint，**无需联网** |
 | `--config` | 指定其它 `config.yaml` 路径 |
 
@@ -114,6 +131,7 @@ python -m unittest discover -s tests -t .
 
 ## 说明
 
+- 流式 I/O 只降低峰值内存；**每张 2D 权重**仍完整执行 **Hadamard 旋转（`H @ W`，axis=0）** 与 **Lloyd-Max 码本量化**。大矩阵用按列分块 FWHT（与一次性 `H @ W` 数学等价），**不会跳过旋转**。
 - 仅对 **2D** 权重做码本量化；1D（如 RMSNorm）以 raw fp16 旁路写入。
 - 权重产物目录（`**/weights/`、`*.bin`）已 gitignore，勿提交大文件。
 - 本仓库**不**导出 GGUF；live `engine` 的量化加载器暂不在范围内。

@@ -131,26 +131,41 @@ def quantize_weight(
     group_size: int = 32,
     seed: int | None = None,
     max_iter: int = 50,
+    workers: int | None = None,
 ) -> QuantTensor:
+    """Core path: Hadamard rotate (axis=0) then per-group Lloyd-Max codebook.
+
+    Streaming callers must use this function for every 2D weight so algorithm
+    semantics stay identical to an in-memory full-model pass.
+    """
     if bits not in (1, 2, 3, 4):
         raise QuantError(f"quantize_weight bits must be 1..4, got {bits}")
     if group_size < 1:
         raise QuantError(f"group_size must be >=1, got {group_size}")
 
-    W = np.asarray(W, dtype=np.float64)
+    from . import runtime
+
+    W = np.asarray(W, dtype=np.float32)
     if W.ndim != 2:
         raise QuantError(f"expected 2D weight, got {W.shape}")
     if not np.isfinite(W).all():
         raise QuantError("weight contains non-finite values")
 
     k0, n = W.shape
+    # Core feature 1: Hadamard rotation (never skipped; chunked if needed).
     W_rot, hmeta = hadamard.hadamard_rotate(W, axis=0, seed=seed)
+    if not hmeta.get("applied"):
+        raise QuantError(
+            f"Hadamard rotation failed to apply for shape {(k0, n)}: {hmeta}"
+        )
+    del W
     k = W_rot.shape[0]
 
     gpad = (-k) % group_size
     if gpad:
-        W_work = np.zeros((k + gpad, n), dtype=np.float64)
+        W_work = np.zeros((k + gpad, n), dtype=np.float32)
         W_work[:k, :] = W_rot
+        del W_rot
     else:
         W_work = W_rot
     k_work = W_work.shape[0]
@@ -159,25 +174,51 @@ def quantize_weight(
 
     num_groups = k_work // group_size
     kc = 1 << bits
-    codebooks = np.zeros((num_groups, n, kc), dtype=np.float64)
-    scales = np.zeros((num_groups, n), dtype=np.float64)
-    norms = np.zeros((num_groups, n), dtype=np.float64)
+    codebooks = np.zeros((num_groups, n, kc), dtype=np.float32)
+    scales = np.zeros((num_groups, n), dtype=np.float32)
+    norms = np.zeros((num_groups, n), dtype=np.float32)
     all_idx = np.zeros((num_groups, group_size, n), dtype=np.uint8)
 
     rng_seed = 0 if seed is None else int(seed)
-    for g in range(num_groups):
+    use_cuda = runtime.cuda_available() and n >= 64 and group_size * n * kc < (1 << 28)
+    n_workers = workers if workers is not None else runtime.default_workers()
+    parallel = (not use_cuda) and n_workers > 1 and num_groups > 2 and (num_groups * n) >= 8192
+
+    def _one_group(g: int) -> tuple[int, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        # Core feature 2: Lloyd-Max codebook per (group, channel).
         sl = slice(g * group_size, (g + 1) * group_size)
         block = W_work[sl, :]
-        for j in range(n):
-            col = block[:, j]
-            scale = float(np.max(np.abs(col))) if col.size else 0.0
-            if scale < 1e-12:
-                scale = 1.0
-            scales[g, j] = scale
-            norms[g, j] = float(np.linalg.norm(col))
-            cb_vec = cb.lloyd_max(col, kc, max_iter=max_iter, seed=rng_seed + g * 10007 + j)
-            codebooks[g, j, :] = cb_vec
-            all_idx[g, :, j] = cb.quantize_group(col, cb_vec)
+        if use_cuda:
+            cbs, sc, nm, idx = cb.lloyd_max_columns_torch(
+                block, kc, max_iter=max_iter, seed=rng_seed + g * 10007
+            )
+        else:
+            cbs, sc, nm, idx = cb.lloyd_max_columns(
+                block, kc, max_iter=max_iter, seed=rng_seed + g * 10007
+            )
+        if cbs.shape != (n, kc) or idx.shape != (group_size, n):
+            raise QuantError(
+                f"Lloyd-Max output shape mismatch: codebook {cbs.shape} indices {idx.shape}"
+            )
+        return g, cbs, sc, nm, idx
+
+    if not parallel:
+        for g in range(num_groups):
+            g_i, cbs, sc, nm, idx = _one_group(g)
+            codebooks[g_i] = cbs
+            scales[g_i] = sc
+            norms[g_i] = nm
+            all_idx[g_i] = idx
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            for g_i, cbs, sc, nm, idx in pool.map(_one_group, range(num_groups)):
+                codebooks[g_i] = cbs
+                scales[g_i] = sc
+                norms[g_i] = nm
+                all_idx[g_i] = idx
+    del W_work
 
     indices_mat = all_idx.reshape(num_groups * group_size, n)
     indices_flat = indices_mat.ravel(order="C")
@@ -211,15 +252,14 @@ def dequantize(t: QuantTensor) -> np.ndarray:
             f"unpacked {indices.size} indices, expected {expected} for shape work ({k_work},{n})"
         )
     idx_mat = indices.reshape(k_work, n)
-    out = np.zeros((k_work, n), dtype=np.float64)
+    out = np.zeros((k_work, n), dtype=np.float32)
     kc = 1 << t.bits
-    cb_arr = t.codebook.astype(np.float64)
+    cb_arr = t.codebook.astype(np.float32)
     if cb_arr.shape != (num_groups, n, kc):
         raise ShapeMismatchError(f"codebook shape {cb_arr.shape} != {(num_groups, n, kc)}")
 
     for g in range(num_groups):
+        rows = slice(g * gs, (g + 1) * gs)
         for j in range(n):
-            for r in range(gs):
-                row = g * gs + r
-                out[row, j] = cb_arr[g, j, int(idx_mat[row, j])]
+            out[rows, j] = cb_arr[g, j, idx_mat[rows, j]]
     return out[:k0, :]

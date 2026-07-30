@@ -194,6 +194,57 @@ def config_from_hf(model_config: dict) -> dict:
     }
 
 
+def load_model_info(repo: str) -> list[tuple[str, tuple[int, ...]]]:
+    """List (name, shape) from safetensors headers only — no weight payloads."""
+    try:
+        from huggingface_hub import hf_hub_download, list_repo_files
+    except ImportError as e:
+        raise ModelFetchError(repo, f"deps missing for load_model_info: {e}", kind="missing")
+
+    try:
+        files = list_repo_files(repo)
+    except Exception as e:
+        raise ModelFetchError(repo, str(e), kind="network") from e
+
+    st_files = _select_safetensors(files, repo)
+    infos: list[tuple[str, tuple[int, ...]]] = []
+    for fname in st_files:
+        try:
+            local = hf_hub_download(repo_id=repo, filename=fname)
+        except Exception as e:
+            raise ModelFetchError(repo, str(e), kind="network") from e
+        infos.extend(_safetensors_header_shapes(local))
+    return infos
+
+
+def _select_safetensors(files: list[str], repo: str) -> list[str]:
+    st_files = [f for f in files if f.endswith(".safetensors") and not f.endswith(".safetensors.index.json")]
+    st_files = [f for f in st_files if "model" in Path(f).name or f.endswith("model.safetensors")]
+    if not st_files:
+        st_files = [f for f in files if f.endswith(".safetensors")]
+    if not st_files:
+        raise ModelFetchError(repo, "no safetensors weights found", kind="missing")
+    return sorted(st_files)
+
+
+def _safetensors_header_shapes(path: str | Path) -> list[tuple[str, tuple[int, ...]]]:
+    path = Path(path)
+    with path.open("rb") as fo:
+        with mmap.mmap(fo.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+            if len(mm) < 8:
+                raise UnsupportedError(f"safetensors too short: {path}")
+            header_len = struct.unpack_from("<Q", mm, 0)[0]
+            header_end = 8 + header_len
+            header = json.loads(bytes(mm[8:header_end]))
+            out: list[tuple[str, tuple[int, ...]]] = []
+            for name, info in header.items():
+                if name == "__metadata__" or not isinstance(info, dict):
+                    continue
+                shape = tuple(int(d) for d in (info.get("shape") or ()))
+                out.append((name, shape))
+            return out
+
+
 def stream_weights(repo: str) -> Generator[tuple[str, np.ndarray], None, None]:
     try:
         from huggingface_hub import hf_hub_download, list_repo_files
@@ -205,15 +256,8 @@ def stream_weights(repo: str) -> Generator[tuple[str, np.ndarray], None, None]:
     except Exception as e:
         raise ModelFetchError(repo, str(e), kind="network") from e
 
-    st_files = [f for f in files if f.endswith(".safetensors") and not f.endswith(".safetensors.index.json")]
-    # prefer sharded model-*.safetensors; skip openvino etc.
-    st_files = [f for f in st_files if "model" in Path(f).name or f.endswith("model.safetensors")]
-    if not st_files:
-        st_files = [f for f in files if f.endswith(".safetensors")]
-    if not st_files:
-        raise ModelFetchError(repo, "no safetensors weights found", kind="missing")
-
-    for fname in sorted(st_files):
+    st_files = _select_safetensors(files, repo)
+    for fname in st_files:
         try:
             local = hf_hub_download(repo_id=repo, filename=fname)
         except Exception as e:

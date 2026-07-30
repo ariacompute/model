@@ -44,7 +44,7 @@
   `n` 须为 2 的幂；`seed=None` 为标准 Sylvester Hadamard（归一化使 `H@H.T=I`）；`seed` 给定时对列施加随机 ±1 对角（随机化 Hadamard）。
 - `next_pow2(n: int) -> int`
 - `hadamard_rotate(W: np.ndarray, axis: int = 0, seed: int | None = None) -> tuple[np.ndarray, dict]`  
-  返回 `(W_rot, meta)`；`meta` 含 `seed`、`row_dim`、`row_pad`、`applied: bool`。
+  返回 `(W_rot, meta)`；**仅 axis=0**（`W_rot = H @ W`）。非 2 幂行维 pad 到下一 2 幂再裁回。内存不足时**按列分块 FWHT**（与整矩阵 `H @ W` 等价），**禁止跳过旋转**。`meta` 含 `seed`、`row_dim`、`row_pad`、`applied: true`、`chunked`。
 
 ### 3.2 `common/codebook.py`
 - `lloyd_max(x: np.ndarray, k: int, max_iter: int = 50, tol: float = 1e-6, seed: int | None = 0) -> np.ndarray`  
@@ -59,8 +59,8 @@
   `input_scale: np.ndarray`（fp16）、`input_scale_recip: np.ndarray`（fp16）、  
   `norms: np.ndarray`（fp16）、`hadamard_meta: dict`、`row_pad: int`。
 - `quantize_weight(W, bits, group_size=32, seed=None, max_iter=50) -> QuantTensor`  
-  流程：Hadamard → 按 `group_size` 切行 → 每 (group, channel) Lloyd-Max → pack。  
-  行维 `K` 须能被 `group_size` 整除（pad 后）；否则 `QuantError`。
+  流程：**Hadamard（必做）** → 按 `group_size` 切行 → 每 (group, channel) **Lloyd-Max（必做）** → pack。  
+  流式导出必须逐张量调用本函数；不得因流式而省略旋转或码本。行维 pad 后须能被 `group_size` 整除；否则 `QuantError`。
 - `dequantize(t: QuantTensor) -> np.ndarray`：重建旋转后空间权重（与量化前 `W_rot` 对齐）；形状 `(K, N)`（裁掉 pad）。
 
 **码本布局**：对每个 group `g`、每个输出通道 `n`，独立码本长度 `2^bits`。  
