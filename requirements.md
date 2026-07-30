@@ -91,6 +91,7 @@
 ### 3.7 `common/hf_utils.py`
 - `make_tiny_state_dict(...)` / `tiny_model_config(...)`：合成 2 层、名称 `token_embd` / `blk.*` / `output*`。
 - `load_model_config(repo) -> dict`、`stream_weights(repo) -> Iterator[(name, ndarray)]`（可选依赖；缺失则 `ModelFetchError`）。
+- 权重流式读取须将 `BF16`/`F16`/`F32`/`F64` 统一为 `float32`；不得依赖 numpy 原生 `bfloat16` dtype（`safe_open(..., framework="np")` 在常见 numpy 上会报 `data type 'bfloat16' not understood`）。
 - `copy_tokenizer(repo_or_path, dest_dir)`。
 
 ### 3.8 `common/cli.py` / 家族脚本
