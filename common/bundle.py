@@ -42,6 +42,7 @@ class BundleWriter:
         quantization: str,
         group_size_default: int = 32,
         hadamard_seed: int | None = None,
+        extra_meta: dict[str, Any] | None = None,
     ):
         self.out = Path(out_dir)
         self.out.mkdir(parents=True, exist_ok=True)
@@ -53,6 +54,7 @@ class BundleWriter:
         self.quantization = quantization
         self.group_size_default = group_size_default
         self.hadamard_seed = hadamard_seed
+        self.extra_meta = dict(extra_meta or {})
 
     def _write(self, data: bytes) -> tuple[int, int]:
         start = self._offset
@@ -111,6 +113,7 @@ class BundleWriter:
             "model": self.model_config,
             "tensors": self.tensor_meta,
         }
+        config.update(self.extra_meta)
         (self.out / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
         return self.out
 

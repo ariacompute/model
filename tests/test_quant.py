@@ -67,9 +67,73 @@ class TestQuant(unittest.TestCase):
         self.assertGreaterEqual(avg, 3.15)
         self.assertLessEqual(avg, 3.40)
 
+    def test_classify_ple_vs_hi(self):
+        self.assertEqual(quant.classify_tensor_role("token_embd.weight"), "ple")
+        self.assertEqual(
+            quant.classify_tensor_role("model.embed_tokens.weight", shape=(262144, 2048)),
+            "ple",
+        )
+        self.assertEqual(quant.classify_tensor_role("blk.0.attn_q.weight"), "hi")
+        self.assertEqual(quant.classify_tensor_role("lm_head.weight"), "hi")
+        self.assertEqual(quant.classify_tensor_role("blk.0.ffn_up.weight"), "compute")
+        # Huge non-attn table by numel+rows
+        self.assertEqual(
+            quant.classify_tensor_role(
+                "model.per_layer_embeddings.weight",
+                shape=(262144, 128),
+                numel=262144 * 128,
+            ),
+            "ple",
+        )
+
+    def test_mixed_15_weighted_gemma_like(self):
+        # ~5.1B: PLE 2.8B @1, compute 1.8B @2, hi 0.5B @3 → ~1.55
+        layers = [
+            ("model.embed_tokens.weight", 2_800_000_000),
+            ("model.layers.0.mlp.up_proj.weight", 1_800_000_000),
+            ("model.layers.0.self_attn.q_proj.weight", 500_000_000),
+        ]
+        shapes = {
+            "model.embed_tokens.weight": (262144, 10681),
+            "model.layers.0.mlp.up_proj.weight": (16384, 109863),
+            "model.layers.0.self_attn.q_proj.weight": (2048, 244141),
+        }
+        assign = quant.allocate_mixed_bits_weighted(layers, 1.5, shapes=shapes)
+        self.assertEqual(assign["model.embed_tokens.weight"], 1)
+        self.assertEqual(assign["model.layers.0.mlp.up_proj.weight"], 2)
+        self.assertEqual(assign["model.layers.0.self_attn.q_proj.weight"], 3)
+        avg = quant.weighted_avg_bits(assign, {n: sz for n, sz in layers})
+        self.assertGreaterEqual(avg, quant.Q15_BAND[0])
+        self.assertLessEqual(avg, quant.Q15_BAND[1])
+        est = quant.estimate_index_bytes(assign, {n: sz for n, sz in layers})
+        self.assertLess(est, 1_073_741_824)
+
+    def test_mixed_15_never_raises_ple(self):
+        layers = [
+            ("token_embd.weight", 100),
+            ("blk.0.ffn_up.weight", 100),
+            ("blk.0.attn_q.weight", 100),
+            ("output.weight", 100),
+        ]
+        assign = quant.allocate_mixed_bits_weighted(layers, 1.5, ple_bits=1)
+        self.assertEqual(assign["token_embd.weight"], 1)
+        # Even if we ask for a high average via overrides that still allow demote/promote,
+        # PLE stays at ple_bits.
+        assign2 = quant.allocate_mixed_bits_weighted(
+            layers, 1.5, ple_bits=1, compute_bits=2, hi_bits=3
+        )
+        self.assertEqual(assign2["token_embd.weight"], 1)
+
+    def test_mixed_15_bad_override(self):
+        with self.assertRaises(QuantError):
+            quant.allocate_mixed_bits_weighted(
+                [("a.weight", 10)], 1.5, ple_bits=2, compute_bits=1, hi_bits=3
+            )
+
     def test_label(self):
         self.assertEqual(quant.quantization_label(4), "q4")
         self.assertEqual(quant.quantization_label(2.54), "q2.54")
+        self.assertEqual(quant.quantization_label(1.5), "q1.5")
 
 
 if __name__ == "__main__":

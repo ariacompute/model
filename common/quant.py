@@ -27,7 +27,36 @@ SENSITIVE_SUBSTR = (
     "o_proj",
 )
 
-VALID_BIT_VALUES = {1, 2, 3, 4, 2.54, 3.26}
+# Compute-sensitive for q1.5 (excludes large embedding / PLE tables).
+HI_SUBSTR = (
+    "lm_head",
+    "attn_q",
+    "attn_k",
+    "attn_v",
+    "attn_output",
+    "attn_o",
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "self_attn.q",
+    "self_attn.k",
+    "self_attn.v",
+    "self_attn.o",
+)
+
+PLE_NAME_SUBSTR = (
+    "per_layer",
+    "per-layer",
+    "embed",
+    "embd",
+    "embedding",
+)
+
+VALID_BIT_VALUES = {1, 2, 3, 4, 1.5, 2.54, 3.26}
+Q15_BAND = (1.35, 1.55)
+PLE_NUMEL_FLOOR = 50_000_000
+PLE_ROW_FLOOR = 32_000
 
 
 def parse_bits(value: Any) -> float:
@@ -46,6 +75,8 @@ def quantization_label(bits: float) -> str:
     bits = parse_bits(bits)
     if bits in (1.0, 2.0, 3.0, 4.0):
         return f"q{int(bits)}"
+    if bits == 1.5:
+        return "q1.5"
     if bits == 2.54:
         return "q2.54"
     if bits == 3.26:
@@ -56,6 +87,218 @@ def quantization_label(bits: float) -> str:
 def _is_sensitive(name: str) -> bool:
     low = name.lower()
     return any(s in low for s in SENSITIVE_SUBSTR)
+
+
+def _is_ple_name(name: str) -> bool:
+    low = name.lower()
+    if "lm_head" in low:
+        return False
+    if any(s in low for s in PLE_NAME_SUBSTR):
+        return True
+    if low.startswith("ple_") or "_ple_" in low or ".ple." in low or low.endswith("_ple"):
+        return True
+    return False
+
+
+def _is_hi_name(name: str) -> bool:
+    low = name.lower()
+    if any(s in low for s in HI_SUBSTR):
+        return True
+    if low.endswith("output.weight") or ".output.weight" in low:
+        return True
+    return False
+
+
+def classify_tensor_role(
+    name: str,
+    shape: tuple[int, ...] | None = None,
+    numel: int | None = None,
+) -> str:
+    """Return ``ple`` | ``hi`` | ``compute`` for q1.5 policy."""
+    if numel is None and shape is not None:
+        n = 1
+        for d in shape:
+            n *= int(d)
+        numel = n
+    if _is_ple_name(name):
+        return "ple"
+    # Size heuristic only with a vocab-like row dim (avoids tagging large FFN as PLE).
+    if shape is not None and len(shape) == 2:
+        rows = int(shape[0])
+        n = int(numel) if numel is not None else rows * int(shape[1])
+        if n >= PLE_NUMEL_FLOOR and rows >= PLE_ROW_FLOOR and not _is_hi_name(name):
+            return "ple"
+    if _is_hi_name(name):
+        return "hi"
+    return "compute"
+
+
+def weighted_avg_bits(assign: dict[str, int], numels: dict[str, int]) -> float:
+    total_n = 0
+    total_b = 0.0
+    for name, bits in assign.items():
+        n = int(numels.get(name, 1))
+        if n < 0:
+            raise QuantError(f"numel must be >=0 for {name}")
+        total_n += n
+        total_b += float(bits) * n
+    if total_n <= 0:
+        raise QuantError("weighted_avg_bits: total numel is 0")
+    return total_b / total_n
+
+
+def estimate_index_bytes(assign: dict[str, int], numels: dict[str, int]) -> int:
+    """Packed index payload size (no codebooks) for a bit map."""
+    total = 0
+    for name, bits in assign.items():
+        total += pack.packed_size(int(numels.get(name, 0)), int(bits))
+    return total
+
+
+def _validate_q15_overrides(ple_bits: int, compute_bits: int, hi_bits: int) -> None:
+    if ple_bits not in (1, 2):
+        raise QuantError(f"ple_bits must be 1 or 2, got {ple_bits}")
+    if compute_bits not in (1, 2, 3):
+        raise QuantError(f"compute_bits must be 1, 2, or 3, got {compute_bits}")
+    if hi_bits not in (2, 3, 4):
+        raise QuantError(f"hi_bits must be 2, 3, or 4, got {hi_bits}")
+    if not (ple_bits <= compute_bits <= hi_bits):
+        raise QuantError(
+            f"require ple_bits <= compute_bits <= hi_bits, got "
+            f"{ple_bits} <= {compute_bits} <= {hi_bits}"
+        )
+
+
+def allocate_mixed_bits_weighted(
+    layers: list[tuple[str, int]],
+    target: float = 1.5,
+    *,
+    ple_bits: int = 1,
+    compute_bits: int = 2,
+    hi_bits: int = 3,
+    shapes: dict[str, tuple[int, ...]] | None = None,
+) -> dict[str, int]:
+    """PLE-default-1 + param-weighted mix for ``--bits 1.5``.
+
+    ``layers`` is a list of ``(name, numel)``. Optional ``shapes`` improves PLE detection.
+    Never raises PLE above ``ple_bits`` while adjusting the average into ``Q15_BAND``.
+    """
+    target = parse_bits(target)
+    if target != 1.5:
+        raise QuantError(f"allocate_mixed_bits_weighted expects 1.5, got {target}")
+    _validate_q15_overrides(ple_bits, compute_bits, hi_bits)
+
+    if not layers:
+        return {}
+
+    numels = {name: int(numel) for name, numel in layers}
+    for name, n in numels.items():
+        if n < 0:
+            raise QuantError(f"numel must be >=0 for {name}")
+
+    roles: dict[str, str] = {}
+    assign: dict[str, int] = {}
+    for name, numel in numels.items():
+        shape = None if shapes is None else shapes.get(name)
+        role = classify_tensor_role(name, shape=shape, numel=numel)
+        roles[name] = role
+        if role == "ple":
+            assign[name] = int(ple_bits)
+        elif role == "hi":
+            assign[name] = int(hi_bits)
+        else:
+            assign[name] = int(compute_bits)
+
+    band_lo, band_hi = Q15_BAND
+    max_steps = max(8, 4 * len(assign))
+
+    def avg() -> float:
+        return weighted_avg_bits(assign, numels)
+
+    def demote_once() -> bool:
+        # Prefer demoting hi toward compute_bits, then other non-PLE toward ple_bits.
+        hi_cand = [
+            n
+            for n, r in roles.items()
+            if r == "hi" and assign[n] > compute_bits
+        ]
+        hi_cand.sort(key=lambda n: (-numels[n], n))
+        if hi_cand:
+            assign[hi_cand[0]] -= 1
+            return True
+        other = [
+            n
+            for n, r in roles.items()
+            if r != "ple" and assign[n] > ple_bits
+        ]
+        other.sort(key=lambda n: (-numels[n], n))
+        if other:
+            assign[other[0]] -= 1
+            return True
+        return False
+
+    def promote_once() -> bool:
+        # Prefer promoting hi toward hi_bits, then compute; never touch PLE.
+        hi_cand = [
+            n
+            for n, r in roles.items()
+            if r == "hi" and assign[n] < hi_bits
+        ]
+        hi_cand.sort(key=lambda n: (-numels[n], n))
+        if hi_cand:
+            assign[hi_cand[0]] += 1
+            return True
+        other = [
+            n
+            for n, r in roles.items()
+            if r == "compute" and assign[n] < hi_bits
+        ]
+        other.sort(key=lambda n: (-numels[n], n))
+        if other:
+            assign[other[0]] += 1
+            return True
+        return False
+
+    for _ in range(max_steps):
+        a = avg()
+        if band_lo <= a <= band_hi:
+            break
+        if a > band_hi:
+            if not demote_once():
+                break
+        elif not promote_once():
+            break
+
+    a = avg()
+    if len(assign) >= 2 and not (band_lo <= a <= band_hi):
+        raise QuantError(
+            f"cannot meet q1.5 weighted bit band {band_lo}-{band_hi}, got {a:.4f}"
+        )
+    # Lock: PLE must stay at ple_bits (never raised by adjustment).
+    for name, role in roles.items():
+        if role == "ple" and assign[name] != ple_bits:
+            raise QuantError(
+                f"internal: PLE layer {name} has bits {assign[name]} != ple_bits {ple_bits}"
+            )
+    return assign
+
+
+def bit_policy_meta(
+    assign: dict[str, int],
+    numels: dict[str, int],
+    *,
+    ple_bits: int = 1,
+    compute_bits: int = 2,
+    hi_bits: int = 3,
+) -> dict[str, Any]:
+    return {
+        "bit_policy": "ple_weighted",
+        "avg_bits_weighted": round(weighted_avg_bits(assign, numels), 6),
+        "ple_bits": int(ple_bits),
+        "compute_bits": int(compute_bits),
+        "hi_bits": int(hi_bits),
+        "estimate_index_bytes": estimate_index_bytes(assign, numels),
+    }
 
 
 def allocate_mixed_bits(layer_names: list[str], target: float) -> dict[str, int]:

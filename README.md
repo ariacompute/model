@@ -46,12 +46,13 @@ python gemma/gemma-4-e2b-it/quantize.py --bits 4 --workers 16
 
 | Flag | Description |
 |------|-------------|
-| `--bits` | `1` / `2` / `3` / `4`, or mixed `2.54` / `3.26` |
+| `--bits` | `1` / `2` / `3` / `4`, or mixed `1.5` / `2.54` / `3.26` |
 | `--model` | Override HF repo id (default from `config.yaml`) |
 | `--group-size` | Codebook group size (default `32`) |
 | `--seed` | Hadamard randomization seed (default `0`) |
 | `--out` | Output directory (default `…/weights/qN` under the family folder) |
 | `--codebook-share` | `group` (default, small) or `channel` (larger, higher fidelity) |
+| `--ple-bits` / `--compute-bits` / `--hi-bits` | Overrides for `--bits 1.5` only (defaults 1 / 2 / 3) |
 | `--workers` | Parallel group workers (default: CPU count, max 32) |
 | `--tiny` | Synthetic tiny checkpoint — **no network** |
 | `--config` | Path to alternate `config.yaml` |
@@ -67,7 +68,10 @@ python gemma/gemma-4-e2b-it/quantize.py --tiny --bits 4
 # 4-bit from default HF model (downloads weights)
 python gemma/gemma-4-e2b-it/quantize.py --bits 4
 
-# Mixed precision ~2.54 bit average
+# q1.5: PLE@1 + param-weighted compute (target weight.bin < 1GB on Gemma-4-E2B)
+python gemma/gemma-4-e2b-it/quantize.py --bits 1.5 --workers 16 --out ./out/gemma_q15
+
+# Mixed precision ~2.54 bit average (per-tensor count)
 python gemma/gemma-4-e2b-it/quantize.py --bits 2.54 --out ./out/gemma_q254
 
 # Mixed precision ~3.26 bit average
@@ -139,6 +143,8 @@ python -m unittest discover -s tests -t .
 - Default **`--codebook-share group`**: one codebook per row-group (shared across channels) so
   `weight.bin` ≈ packed 4-bit indices (~2.5 GB for Gemma-4-E2B). Use `--codebook-share channel`
   for per-channel codebooks (higher fidelity, ~8 GB).
+- **`--bits 1.5`**: PLE / large embeddings default **1-bit**, compute layers **2–3 bit**,
+  **parameter-weighted** average in ~1.35–1.55; target Gemma-4-E2B `weight.bin` **&lt; 1 GB**.
 - Only **2D** weights are codebook-quantized; 1D tensors (e.g. RMSNorm) are stored as raw fp16.
 - Weight product dirs (`**/weights/`, `*.bin`) are gitignored — do not commit multi-GB artifacts.
 - This repo does **not** emit GGUF; live `engine` quant loaders are out of scope for now.
