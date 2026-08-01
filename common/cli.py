@@ -16,7 +16,7 @@ from .errors import ConfigError, QuantError
 def build_parser(default_bits: float = 4) -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Hadamard + codebook weight quantization")
     p.add_argument("--model", type=str, default=None, help="HF repo id")
-    p.add_argument("--bits", type=float, default=None, help="1|2|3|4|1.5|2.54|3.26")
+    p.add_argument("--bits", type=float, default=None, help="1|2|3|4|8|1.5|2.54|3.26")
     p.add_argument("--group-size", type=int, default=None)
     p.add_argument("--out", type=str, default=None)
     p.add_argument("--seed", type=int, default=None)
@@ -210,7 +210,7 @@ def _process_one(
             raise QuantError(
                 f"{name}: Hadamard rotation was not applied (streaming invariant broken)"
             )
-        if obj.codebook.size == 0 or obj.bits not in (1, 2, 3, 4):
+        if obj.codebook.size == 0 or obj.bits not in quant.INTEGER_BITS:
             raise QuantError(f"{name}: Lloyd-Max codebook missing after quantize")
         return obj
     return np.asarray(arr)

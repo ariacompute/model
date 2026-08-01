@@ -14,7 +14,7 @@ from common.errors import QuantError
 class TestPack(unittest.TestCase):
     def test_roundtrip_all_bits(self):
         rng = np.random.default_rng(0)
-        for bits in (1, 2, 3, 4):
+        for bits in (1, 2, 3, 4, 8):
             max_v = (1 << bits) - 1
             idx = rng.integers(0, max_v + 1, size=100, dtype=np.uint8)
             packed = pack.pack_indices(idx, bits)

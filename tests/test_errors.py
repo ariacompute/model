@@ -13,8 +13,9 @@ import numpy as np
 
 class TestErrors(unittest.TestCase):
     def test_invalid_bits(self):
+        self.assertEqual(quant.parse_bits(8), 8.0)
         with self.assertRaises(QuantError):
-            quant.parse_bits(8)
+            quant.parse_bits(5)
 
     def test_bad_bundle(self):
         with tempfile.TemporaryDirectory() as td:

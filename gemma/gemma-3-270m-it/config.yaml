@@ -1,0 +1,4 @@
+base_model: google/gemma-3-270m-it
+default_bits: 4
+group_size: 32
+hadamard_seed: 0

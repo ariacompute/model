@@ -35,6 +35,20 @@ class TestCliTiny(unittest.TestCase):
             cfg, _ = bundle.load_bundle(out)
             self.assertEqual(cfg["quantization"], "q2.54")
 
+    def test_tiny_q8(self):
+        family = Path(ROOT) / "gemma" / "gemma-4-e2b-it"
+        with tempfile.TemporaryDirectory() as td:
+            args = cli.build_parser().parse_args(
+                ["--tiny", "--bits", "8", "--out", td, "--seed", "0"]
+            )
+            out = cli.run_quantize(args, str(family), label="test")
+            cfg, tensors = bundle.load_bundle(out)
+            self.assertEqual(cfg["quantization"], "q8")
+            for n, t in tensors.items():
+                if hasattr(t, "bits"):
+                    self.assertEqual(t.bits, 8)
+                    quant.dequantize(t)
+
     def test_tiny_q15(self):
         family = Path(ROOT) / "gemma" / "gemma-4-e2b-it"
         with tempfile.TemporaryDirectory() as td:

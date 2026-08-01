@@ -6,23 +6,28 @@ import numpy as np
 
 from .errors import QuantError, ShapeMismatchError
 
+INTEGER_BITS = (1, 2, 3, 4, 8)
+
 
 def packed_size(count: int, bits: int) -> int:
     if count < 0:
         raise QuantError(f"count must be >=0, got {count}")
-    if bits not in (1, 2, 3, 4):
-        raise QuantError(f"bits must be 1..4, got {bits}")
+    if bits not in INTEGER_BITS:
+        raise QuantError(f"bits must be one of {INTEGER_BITS}, got {bits}")
     return (count * bits + 7) // 8
 
 
 def pack_indices(indices: np.ndarray, bits: int) -> bytes:
-    """Pack indices LSB-first within each byte."""
-    if bits not in (1, 2, 3, 4):
-        raise QuantError(f"bits must be 1..4, got {bits}")
+    """Pack indices LSB-first within each byte (8-bit = raw uint8 bytes)."""
+    if bits not in INTEGER_BITS:
+        raise QuantError(f"bits must be one of {INTEGER_BITS}, got {bits}")
     idx = np.asarray(indices, dtype=np.uint8).ravel()
     max_val = (1 << bits) - 1
     if idx.size and int(idx.max()) > max_val:
         raise QuantError(f"index {int(idx.max())} exceeds max for {bits}-bit")
+    if bits == 8:
+        return idx.tobytes(order="C")
+
     out = bytearray(packed_size(idx.size, bits))
     bit_pos = 0
     for v in idx:
@@ -37,13 +42,16 @@ def pack_indices(indices: np.ndarray, bits: int) -> bytes:
 
 
 def unpack_indices(data: bytes, count: int, bits: int) -> np.ndarray:
-    if bits not in (1, 2, 3, 4):
-        raise QuantError(f"bits must be 1..4, got {bits}")
+    if bits not in INTEGER_BITS:
+        raise QuantError(f"bits must be one of {INTEGER_BITS}, got {bits}")
     need = packed_size(count, bits)
     if len(data) < need:
         raise ShapeMismatchError(
             f"packed data length {len(data)} < required {need} for count={count} bits={bits}"
         )
+    if bits == 8:
+        return np.frombuffer(data[:need], dtype=np.uint8).copy()
+
     max_val = (1 << bits) - 1
     out = np.zeros(count, dtype=np.uint8)
     bit_pos = 0

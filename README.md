@@ -4,14 +4,14 @@
 
 Python toolkit for **Hadamard rotation + Lloyd-Max codebook quantization** for on-device LLM weights.
 
-Target models:
+Supported families (Qwen / Gemma / LFM / Nanbeige / Bonsai / Inkling): full table in
+[`requirements.md` §1.1](requirements.md). Each folder has `quantize.py` + `config.yaml`.
 
-| Family | Script | Default HuggingFace id |
-|--------|--------|------------------------|
-| Gemma 4 E2B IT | [`gemma/gemma-4-e2b-it/quantize.py`](gemma/gemma-4-e2b-it/quantize.py) | `google/gemma-4-E2B-it` |
-| Qwen 3.5 2B | [`qwen/qwen3.5-2b/quantize.py`](qwen/qwen3.5-2b/quantize.py) | `Qwen/Qwen3.5-2B` |
+Output is an Aria-style bundle: `weight.bin` + `config.json` (+ tokenizer). Spec:
+[`requirements.md`](requirements.md). Agent index: [`AGENTS.md`](AGENTS.md).
 
-Output is an Aria-style bundle: `weight.bin` + `config.json` (+ tokenizer files when downloading from HF). Spec: [`requirements.md`](requirements.md). Agent index: [`AGENTS.md`](AGENTS.md).
+**int4** = `--bits 4` (codebook K=16). **int8** = `--bits 8` (codebook K=256, Hadamard+Lloyd-Max only).
+VL models quantize vision towers by default. Weights must be **safetensors** (GGUF not parsed).
 
 ## Setup
 
@@ -21,112 +21,201 @@ uv venv .venv && source .venv/bin/activate   # or: python3 -m venv .venv
 uv pip install -r requirements.txt           # or: pip install -r requirements.txt
 # optional, for full HF model load path:
 # uv pip install torch transformers
+# optional CUDA speedup:
+# uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+export HF_TOKEN=...   # higher Hub rate limits (recommended for full downloads)
 ```
 
 Core quant path needs **numpy** (+ **pyyaml** for `config.yaml`). Real HF downloads also need **safetensors** and **huggingface_hub**.
 
 ### Recommended host (reference)
 
-Validated target for full-model runs: **1× NVIDIA H100**, **16 vCPUs**, **200 GiB RAM** (`gpu-h100-sxm`). On this class of machine the toolkit:
+Validated target for full-model runs: **1× NVIDIA H100**, **16 vCPUs**, **200 GiB RAM** (`gpu-h100-sxm`).
 
-- Auto-sizes Hadamard work buffers from detected RAM (~25%)
-- Uses up to 16 CPU workers for group codebook fitting (`--workers`)
-- Uses **CUDA** batched Lloyd-Max when `torch` + GPU are available (`ARIA_QUANT_FORCE_CPU=1` to disable)
-
-```bash
-# optional CUDA speedup
-uv pip install torch --index-url https://download.pytorch.org/whl/cu124
-
-export HF_TOKEN=...   # higher Hub rate limits
-python gemma/gemma-4-e2b-it/quantize.py --bits 4 --workers 16
-# ~2.5–3 GB weight.bin expected for Gemma-4-E2B (vs ~8 GB with --codebook-share channel)
-```
-
-## CLI flags (both scripts)
+## CLI flags
 
 | Flag | Description |
 |------|-------------|
-| `--bits` | `1` / `2` / `3` / `4`, or mixed `1.5` / `2.54` / `3.26` |
+| `--bits` | `1` / `2` / `3` / `4` / `8` (int8 codebook), or mixed `1.5` / `2.54` / `3.26` |
 | `--model` | Override HF repo id (default from `config.yaml`) |
 | `--group-size` | Codebook group size (default `32`) |
 | `--seed` | Hadamard randomization seed (default `0`) |
-| `--out` | Output directory (default `…/weights/qN` under the family folder) |
+| `--out` | **Required in examples below** — output bundle directory |
 | `--codebook-share` | `group` (default, small) or `channel` (larger, higher fidelity) |
 | `--ple-bits` / `--compute-bits` / `--hi-bits` | Overrides for `--bits 1.5` only (defaults 1 / 2 / 3) |
 | `--workers` | Parallel group workers (default: CPU count, max 32) |
 | `--tiny` | Synthetic tiny checkpoint — **no network** |
 | `--config` | Path to alternate `config.yaml` |
 
-## Gemma (`gemma-4-e2b-it`)
+## Output path convention
 
-Config: [`gemma/gemma-4-e2b-it/config.yaml`](gemma/gemma-4-e2b-it/config.yaml).
+Always pass `--out`. Use a single root `./out/` and this name pattern:
 
-```bash
-# Smoke test (offline)
-python gemma/gemma-4-e2b-it/quantize.py --tiny --bits 4
-
-# 4-bit from default HF model (downloads weights)
-python gemma/gemma-4-e2b-it/quantize.py --bits 4
-
-# q1.5: PLE@1 + param-weighted compute (target weight.bin < 1GB on Gemma-4-E2B)
-python gemma/gemma-4-e2b-it/quantize.py --bits 1.5 --workers 16 --out ./out/gemma_q15
-
-# Mixed precision ~2.54 bit average (per-tensor count)
-python gemma/gemma-4-e2b-it/quantize.py --bits 2.54 --out ./out/gemma_q254
-
-# Mixed precision ~3.26 bit average
-python gemma/gemma-4-e2b-it/quantize.py --bits 3.26 --out ./out/gemma_q326
-
-# Override model id / seed / group size
-python gemma/gemma-4-e2b-it/quantize.py \
-  --model google/gemma-4-E2B-it \
-  --bits 4 \
-  --group-size 32 \
-  --seed 0 \
-  --out ./out/gemma_q4
+```text
+./out/<model-slug>_<quant>
 ```
 
-## Qwen (`qwen3.5-2b`)
+| Part | Rule | Examples |
+|------|------|----------|
+| `<model-slug>` | Same as the family folder name | `gemma-4-e2b-it`, `qwen3.5-2b`, `lfm2.5-1.2b-instruct` |
+| `<quant>` | Bit label with `.` removed | `q4`, `q8`, `q15`, `q254`, `q326` |
 
-Config: [`qwen/qwen3.5-2b/config.yaml`](qwen/qwen3.5-2b/config.yaml).
+Examples: `./out/gemma-4-e2b-it_q4`, `./out/qwen3.5-2b_q8`, `./out/gemma-4-e2b-it_q15`.
 
-```bash
-# Smoke test (offline)
-python qwen/qwen3.5-2b/quantize.py --tiny --bits 4
+Bundle layout:
 
-# 4-bit from default HF model
-python qwen/qwen3.5-2b/quantize.py --bits 4
-
-# Mixed precision
-python qwen/qwen3.5-2b/quantize.py --bits 2.54 --out ./out/qwen_q254
-python qwen/qwen3.5-2b/quantize.py --bits 3.26 --out ./out/qwen_q326
-
-# Override model id
-python qwen/qwen3.5-2b/quantize.py \
-  --model Qwen/Qwen3.5-2B \
-  --bits 4 \
-  --out ./out/qwen_q4
+```text
+out/gemma-4-e2b-it_q4/
+  config.json
+  weight.bin
+  tokenizer.*      # when not using --tiny
 ```
-
-## Output layout
-
-Example for `--out ./out/gemma_q4`:
-
-```
-out/gemma_q4/
-  config.json      # format aria-quant-bundle, per-tensor offsets / bits
-  weight.bin       # packed indices + fp16 codebook / scales / norms
-  tokenizer.*      # copied from HF when not using --tiny
-```
-
-Load and dequantize in Python:
 
 ```python
 from common.bundle import load_bundle
 from common.quant import dequantize
 
-cfg, tensors = load_bundle("./out/gemma_q4")
+cfg, tensors = load_bundle("./out/gemma-4-e2b-it_q4")
 W = dequantize(tensors["blk.0.attn_q.weight"])  # rotated-space reconstruction
+```
+
+## Offline smoke (`--tiny`)
+
+```bash
+python gemma/gemma-4-e2b-it/quantize.py --tiny --bits 4 --out ./out/gemma-4-e2b-it_tiny_q4
+python gemma/gemma-4-e2b-it/quantize.py --tiny --bits 8 --out ./out/gemma-4-e2b-it_tiny_q8
+python qwen/qwen3.5-2b/quantize.py --tiny --bits 4 --out ./out/qwen3.5-2b_tiny_q4
+python lfm/lfm2-350m/quantize.py --tiny --bits 4 --out ./out/lfm2-350m_tiny_q4
+```
+
+## Full-model commands (int4 + int8)
+
+All commands download from the default `base_model` in each `config.yaml` unless `--model` is set.
+Add `--workers 16` on large hosts as needed.
+
+### Qwen
+
+```bash
+# qwen3-0.6b
+python qwen/qwen3-0.6b/quantize.py --bits 4 --out ./out/qwen3-0.6b_q4
+python qwen/qwen3-0.6b/quantize.py --bits 8 --out ./out/qwen3-0.6b_q8
+
+# qwen3-1.7b
+python qwen/qwen3-1.7b/quantize.py --bits 4 --out ./out/qwen3-1.7b_q4
+python qwen/qwen3-1.7b/quantize.py --bits 8 --out ./out/qwen3-1.7b_q8
+
+# qwen3.5-0.8b
+python qwen/qwen3.5-0.8b/quantize.py --bits 4 --out ./out/qwen3.5-0.8b_q4
+python qwen/qwen3.5-0.8b/quantize.py --bits 8 --out ./out/qwen3.5-0.8b_q8
+
+# qwen3.5-2b
+python qwen/qwen3.5-2b/quantize.py --bits 4 --out ./out/qwen3.5-2b_q4
+python qwen/qwen3.5-2b/quantize.py --bits 8 --out ./out/qwen3.5-2b_q8
+```
+
+### Gemma
+
+```bash
+# gemma-3-270m-it
+python gemma/gemma-3-270m-it/quantize.py --bits 4 --out ./out/gemma-3-270m-it_q4
+python gemma/gemma-3-270m-it/quantize.py --bits 8 --out ./out/gemma-3-270m-it_q8
+
+# gemma-3-1b-it
+python gemma/gemma-3-1b-it/quantize.py --bits 4 --out ./out/gemma-3-1b-it_q4
+python gemma/gemma-3-1b-it/quantize.py --bits 8 --out ./out/gemma-3-1b-it_q8
+
+# gemma-3n-e2b-it
+python gemma/gemma-3n-e2b-it/quantize.py --bits 4 --out ./out/gemma-3n-e2b-it_q4
+python gemma/gemma-3n-e2b-it/quantize.py --bits 8 --out ./out/gemma-3n-e2b-it_q8
+
+# gemma-3n-e4b-it
+python gemma/gemma-3n-e4b-it/quantize.py --bits 4 --out ./out/gemma-3n-e4b-it_q4
+python gemma/gemma-3n-e4b-it/quantize.py --bits 8 --out ./out/gemma-3n-e4b-it_q8
+
+# gemma-4-e2b-it
+python gemma/gemma-4-e2b-it/quantize.py --bits 4 --out ./out/gemma-4-e2b-it_q4
+python gemma/gemma-4-e2b-it/quantize.py --bits 8 --out ./out/gemma-4-e2b-it_q8
+
+# gemma-4-e4b-it
+python gemma/gemma-4-e4b-it/quantize.py --bits 4 --out ./out/gemma-4-e4b-it_q4
+python gemma/gemma-4-e4b-it/quantize.py --bits 8 --out ./out/gemma-4-e4b-it_q8
+```
+
+### LFM
+
+```bash
+# lfm2-350m
+python lfm/lfm2-350m/quantize.py --bits 4 --out ./out/lfm2-350m_q4
+python lfm/lfm2-350m/quantize.py --bits 8 --out ./out/lfm2-350m_q8
+
+# lfm2-700m
+python lfm/lfm2-700m/quantize.py --bits 4 --out ./out/lfm2-700m_q4
+python lfm/lfm2-700m/quantize.py --bits 8 --out ./out/lfm2-700m_q8
+
+# lfm2-1.2b
+python lfm/lfm2-1.2b/quantize.py --bits 4 --out ./out/lfm2-1.2b_q4
+python lfm/lfm2-1.2b/quantize.py --bits 8 --out ./out/lfm2-1.2b_q8
+
+# lfm2-2.6b
+python lfm/lfm2-2.6b/quantize.py --bits 4 --out ./out/lfm2-2.6b_q4
+python lfm/lfm2-2.6b/quantize.py --bits 8 --out ./out/lfm2-2.6b_q8
+
+# lfm2-8b-a1b
+python lfm/lfm2-8b-a1b/quantize.py --bits 4 --out ./out/lfm2-8b-a1b_q4
+python lfm/lfm2-8b-a1b/quantize.py --bits 8 --out ./out/lfm2-8b-a1b_q8
+
+# lfm2-vl-450m (vision included)
+python lfm/lfm2-vl-450m/quantize.py --bits 4 --out ./out/lfm2-vl-450m_q4
+python lfm/lfm2-vl-450m/quantize.py --bits 8 --out ./out/lfm2-vl-450m_q8
+
+# lfm2.5-350m
+python lfm/lfm2.5-350m/quantize.py --bits 4 --out ./out/lfm2.5-350m_q4
+python lfm/lfm2.5-350m/quantize.py --bits 8 --out ./out/lfm2.5-350m_q8
+
+# lfm2.5-1.2b-instruct
+python lfm/lfm2.5-1.2b-instruct/quantize.py --bits 4 --out ./out/lfm2.5-1.2b-instruct_q4
+python lfm/lfm2.5-1.2b-instruct/quantize.py --bits 8 --out ./out/lfm2.5-1.2b-instruct_q8
+
+# lfm2.5-1.2b-thinking
+python lfm/lfm2.5-1.2b-thinking/quantize.py --bits 4 --out ./out/lfm2.5-1.2b-thinking_q4
+python lfm/lfm2.5-1.2b-thinking/quantize.py --bits 8 --out ./out/lfm2.5-1.2b-thinking_q8
+
+# lfm2.5-vl-1.6b (vision included)
+python lfm/lfm2.5-vl-1.6b/quantize.py --bits 4 --out ./out/lfm2.5-vl-1.6b_q4
+python lfm/lfm2.5-vl-1.6b/quantize.py --bits 8 --out ./out/lfm2.5-vl-1.6b_q8
+```
+
+### Nanbeige / Bonsai / Inkling
+
+```bash
+# nanbeige4.2-3b
+python nanbeige/nanbeige4.2-3b/quantize.py --bits 4 --out ./out/nanbeige4.2-3b_q4
+python nanbeige/nanbeige4.2-3b/quantize.py --bits 8 --out ./out/nanbeige4.2-3b_q8
+
+# bonsai-27b (BF16 safetensors ~54GB source; large output)
+python bonsai/bonsai-27b/quantize.py --bits 4 --workers 16 --out ./out/bonsai-27b_q4
+python bonsai/bonsai-27b/quantize.py --bits 8 --workers 16 --out ./out/bonsai-27b_q8
+
+# inkling-small
+python inkling/inkling-small/quantize.py --bits 4 --out ./out/inkling-small_q4
+python inkling/inkling-small/quantize.py --bits 8 --out ./out/inkling-small_q8
+```
+
+## Optional mixed-precision commands
+
+```bash
+# PLE-weighted (target <1GB on Gemma-4-E2B)
+python gemma/gemma-4-e2b-it/quantize.py --bits 1.5 --workers 16 --out ./out/gemma-4-e2b-it_q15
+python gemma/gemma-4-e4b-it/quantize.py --bits 1.5 --workers 16 --out ./out/gemma-4-e4b-it_q15
+python gemma/gemma-3n-e2b-it/quantize.py --bits 1.5 --workers 16 --out ./out/gemma-3n-e2b-it_q15
+python gemma/gemma-3n-e4b-it/quantize.py --bits 1.5 --workers 16 --out ./out/gemma-3n-e4b-it_q15
+
+# Layer-count mixed (2.54 / 3.26)
+python qwen/qwen3.5-2b/quantize.py --bits 2.54 --out ./out/qwen3.5-2b_q254
+python qwen/qwen3.5-2b/quantize.py --bits 3.26 --out ./out/qwen3.5-2b_q326
+python gemma/gemma-4-e2b-it/quantize.py --bits 2.54 --out ./out/gemma-4-e2b-it_q254
+python gemma/gemma-4-e2b-it/quantize.py --bits 3.26 --out ./out/gemma-4-e2b-it_q326
 ```
 
 ## Tests
@@ -140,11 +229,10 @@ python -m unittest discover -s tests -t .
 - Streaming I/O only limits peak memory; **every 2D weight** still runs full
   **Hadamard rotation (`H @ W`, axis=0)** then **Lloyd-Max codebook quantization**.
   Large matrices use column-chunked FWHT (same math as one-shot `H @ W`), never skip rotation.
-- Default **`--codebook-share group`**: one codebook per row-group (shared across channels) so
-  `weight.bin` ≈ packed 4-bit indices (~2.5 GB for Gemma-4-E2B). Use `--codebook-share channel`
-  for per-channel codebooks (higher fidelity, ~8 GB).
+- Default **`--codebook-share group`**: one codebook per row-group (shared across channels).
+  Use `--codebook-share channel` for higher fidelity (much larger `weight.bin`).
 - **`--bits 1.5`**: PLE / large embeddings default **1-bit**, compute layers **2–3 bit**,
-  **parameter-weighted** average in ~1.35–1.55; target Gemma-4-E2B `weight.bin` **&lt; 1 GB**.
+  **parameter-weighted** average in ~1.35–1.55; Gemma-4-E2B target `weight.bin` **&lt; 1 GB**.
 - Only **2D** weights are codebook-quantized; 1D tensors (e.g. RMSNorm) are stored as raw fp16.
-- Weight product dirs (`**/weights/`, `*.bin`) are gitignored — do not commit multi-GB artifacts.
+- Product dirs (`./out/`, `**/weights/`, `*.bin`) are gitignored — do not commit multi-GB artifacts.
 - This repo does **not** emit GGUF; live `engine` quant loaders are out of scope for now.

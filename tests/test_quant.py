@@ -22,6 +22,7 @@ def _rel_rmse(a, b):
 class TestQuant(unittest.TestCase):
     def test_parse_bits(self):
         self.assertEqual(quant.parse_bits(4), 4.0)
+        self.assertEqual(quant.parse_bits(8), 8.0)
         self.assertEqual(quant.parse_bits("2.54"), 2.54)
         with self.assertRaises(QuantError):
             quant.parse_bits(5)
@@ -30,7 +31,7 @@ class TestQuant(unittest.TestCase):
         rng = np.random.default_rng(0)
         W = rng.normal(size=(64, 16))
         # group-share is slightly looser than per-channel; keep Spec-ish bands.
-        bounds = {4: 0.45, 3: 0.60, 2: 0.85, 1: 1.20}
+        bounds = {8: 0.25, 4: 0.45, 3: 0.60, 2: 0.85, 1: 1.20}
         W_rot, _ = hadamard.hadamard_rotate(W, seed=0)
         for bits, lim in bounds.items():
             t = quant.quantize_weight(W, bits=bits, group_size=32, seed=0, codebook_share="group")
@@ -132,6 +133,7 @@ class TestQuant(unittest.TestCase):
 
     def test_label(self):
         self.assertEqual(quant.quantization_label(4), "q4")
+        self.assertEqual(quant.quantization_label(8), "q8")
         self.assertEqual(quant.quantization_label(2.54), "q2.54")
         self.assertEqual(quant.quantization_label(1.5), "q1.5")
 

@@ -53,7 +53,8 @@ PLE_NAME_SUBSTR = (
     "embedding",
 )
 
-VALID_BIT_VALUES = {1, 2, 3, 4, 1.5, 2.54, 3.26}
+VALID_BIT_VALUES = {1, 2, 3, 4, 8, 1.5, 2.54, 3.26}
+INTEGER_BITS = (1, 2, 3, 4, 8)
 Q15_BAND = (1.35, 1.55)
 PLE_NUMEL_FLOOR = 50_000_000
 PLE_ROW_FLOOR = 32_000
@@ -64,7 +65,7 @@ def parse_bits(value: Any) -> float:
         bits = float(value)
     except (TypeError, ValueError) as e:
         raise QuantError(f"invalid bits value: {value!r}") from e
-    if bits in (1.0, 2.0, 3.0, 4.0):
+    if bits in (1.0, 2.0, 3.0, 4.0, 8.0):
         bits = float(int(bits))
     if bits not in VALID_BIT_VALUES:
         raise QuantError(f"bits must be one of {sorted(VALID_BIT_VALUES)}, got {bits}")
@@ -73,7 +74,7 @@ def parse_bits(value: Any) -> float:
 
 def quantization_label(bits: float) -> str:
     bits = parse_bits(bits)
-    if bits in (1.0, 2.0, 3.0, 4.0):
+    if bits in (1.0, 2.0, 3.0, 4.0, 8.0):
         return f"q{int(bits)}"
     if bits == 1.5:
         return "q1.5"
@@ -379,8 +380,8 @@ def quantize_weight(
     ``codebook_share=group`` (default): one codebook per row-group — small on disk.
     ``codebook_share=channel``: per-(group, channel) — higher fidelity, ~3× larger.
     """
-    if bits not in (1, 2, 3, 4):
-        raise QuantError(f"quantize_weight bits must be 1..4, got {bits}")
+    if bits not in INTEGER_BITS:
+        raise QuantError(f"quantize_weight bits must be one of {INTEGER_BITS}, got {bits}")
     if group_size < 1:
         raise QuantError(f"group_size must be >=1, got {group_size}")
     if codebook_share not in ("group", "channel"):

@@ -1,9 +1,9 @@
-"""Quantize qwen3.5-2b with Hadamard + codebook quantization.
+"""Quantize nanbeige4.2-3b with Hadamard + codebook quantization.
 
 Usage:
-  python qwen/qwen3.5-2b/quantize.py --tiny --bits 4
-  python qwen/qwen3.5-2b/quantize.py --bits 8
-  python qwen/qwen3.5-2b/quantize.py --model Qwen/Qwen3.5-2B --bits 4
+  python nanbeige/nanbeige4.2-3b/quantize.py --tiny --bits 4
+  python nanbeige/nanbeige4.2-3b/quantize.py --bits 8
+  python nanbeige/nanbeige4.2-3b/quantize.py --model Nanbeige/Nanbeige4.2-3B --bits 4
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from common import cli
 def main():
     family = os.path.dirname(os.path.abspath(__file__))
     args = cli.build_parser().parse_args()
-    cli.run_quantize(args, family, label="qwen3.5-2b")
+    cli.run_quantize(args, family, label="nanbeige4.2-3b")
 
 
 if __name__ == "__main__":

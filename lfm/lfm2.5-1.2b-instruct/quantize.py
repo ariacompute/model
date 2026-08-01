@@ -1,9 +1,9 @@
-"""Quantize qwen3.5-2b with Hadamard + codebook quantization.
+"""Quantize lfm2.5-1.2b-instruct with Hadamard + codebook quantization.
 
 Usage:
-  python qwen/qwen3.5-2b/quantize.py --tiny --bits 4
-  python qwen/qwen3.5-2b/quantize.py --bits 8
-  python qwen/qwen3.5-2b/quantize.py --model Qwen/Qwen3.5-2B --bits 4
+  python lfm/lfm2.5-1.2b-instruct/quantize.py --tiny --bits 4
+  python lfm/lfm2.5-1.2b-instruct/quantize.py --bits 8
+  python lfm/lfm2.5-1.2b-instruct/quantize.py --model LiquidAI/LFM2.5-1.2B-Instruct --bits 4
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from common import cli
 def main():
     family = os.path.dirname(os.path.abspath(__file__))
     args = cli.build_parser().parse_args()
-    cli.run_quantize(args, family, label="qwen3.5-2b")
+    cli.run_quantize(args, family, label="lfm2.5-1.2b-instruct")
 
 
 if __name__ == "__main__":

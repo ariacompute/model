@@ -1,0 +1,4 @@
+base_model: LiquidAI/LFM2-700M
+default_bits: 4
+group_size: 32
+hadamard_seed: 0

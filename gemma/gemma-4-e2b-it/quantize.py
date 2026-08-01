@@ -2,7 +2,7 @@
 
 Usage:
   python gemma/gemma-4-e2b-it/quantize.py --tiny --bits 4
-  python gemma/gemma-4-e2b-it/quantize.py --bits 2.54
+  python gemma/gemma-4-e2b-it/quantize.py --bits 8
   python gemma/gemma-4-e2b-it/quantize.py --model google/gemma-4-E2B-it --bits 4
 """
 
