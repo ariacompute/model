@@ -14,7 +14,7 @@
 
 ## 目录
 - `common/`：errors / hadamard / codebook / quant / pack / bundle / hf_utils / cli / runtime
-- `qwen/` `gemma/` `lfm/` `nanbeige/` `bonsai/` `inkling/`：各模型 `quantize.py` + `config.yaml`
+- `qwen/` `gemma/` `lfm/` `nanbeige/` `bonsai/` `inkling/` `openvla/` `openpi/` `lingbot/`：各模型 `quantize.py` + `config.yaml`
 - `tests/`：unittest；家族表见 `requirements.md` §1.1
 - 根：`AGENTS.md` / `requirements.md` / `task.md` / `README.md` / `requirements.txt`
 

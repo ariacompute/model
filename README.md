@@ -4,8 +4,8 @@
 
 Python toolkit for **Hadamard rotation + Lloyd-Max codebook quantization** for on-device LLM weights.
 
-Supported families (Qwen / Gemma / LFM / Nanbeige / Bonsai / Inkling): full table in
-[`requirements.md` §1.1](requirements.md). Each folder has `quantize.py` + `config.yaml`.
+Supported families (Qwen / Gemma / LFM / Nanbeige / Bonsai / Inkling / OpenVLA / OpenPI / LingBot):
+full table in [`requirements.md` §1.1](requirements.md). Each folder has `quantize.py` + `config.yaml`.
 
 Output is an Aria-style bundle: `weight.bin` + `config.json` (+ tokenizer). Spec:
 [`requirements.md`](requirements.md). Agent index: [`AGENTS.md`](AGENTS.md).
@@ -200,6 +200,26 @@ python bonsai/bonsai-27b/quantize.py --bits 8 --workers 16 --out ./out/bonsai-27
 # inkling-small
 python inkling/inkling-small/quantize.py --bits 4 --out ./out/inkling-small_q4
 python inkling/inkling-small/quantize.py --bits 8 --out ./out/inkling-small_q8
+```
+
+### OpenVLA / OpenPI / LingBot (VLA; vision + action heads included)
+
+```bash
+# openvla-7b  (HF: openvla/openvla-7b)
+python openvla/openvla-7b/quantize.py --bits 4 --out ./out/openvla-7b_q4
+python openvla/openvla-7b/quantize.py --bits 8 --out ./out/openvla-7b_q8
+
+# openpi-pi0-3b  (HF: lerobot/pi0_base)
+python openpi/openpi-pi0-3b/quantize.py --bits 4 --out ./out/openpi-pi0-3b_q4
+python openpi/openpi-pi0-3b/quantize.py --bits 8 --out ./out/openpi-pi0-3b_q8
+
+# openpi-pi0.5-3b  (HF: lerobot/pi05_base)
+python openpi/openpi-pi0.5-3b/quantize.py --bits 4 --out ./out/openpi-pi0.5-3b_q4
+python openpi/openpi-pi0.5-3b/quantize.py --bits 8 --out ./out/openpi-pi0.5-3b_q8
+
+# lingbot-vla-v2-6b  (HF: robbyant/lingbot-vla-v2-6b)
+python lingbot/lingbot-vla-v2-6b/quantize.py --bits 4 --out ./out/lingbot-vla-v2-6b_q4
+python lingbot/lingbot-vla-v2-6b/quantize.py --bits 8 --out ./out/lingbot-vla-v2-6b_q8
 ```
 
 ## Optional mixed-precision commands

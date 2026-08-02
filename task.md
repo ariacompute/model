@@ -14,3 +14,7 @@
 - [x] §1.1 全部目录：`quantize.py` + `config.yaml`
 - [x] `tests/test_families.py` 锁定 base_model
 - [x] Spec / AGENTS / README 同步
+
+## T11 — VLA 家族
+- [x] `openvla-7b` / `openpi-pi0-3b`（`lerobot/pi0_base`）/ `openpi-pi0.5-3b`（`lerobot/pi05_base`）/ `lingbot-vla-v2-6b`
+- [x] README 命令（`--out` 规范化）+ `test_families`

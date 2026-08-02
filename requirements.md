@@ -43,9 +43,14 @@
 | `nanbeige/nanbeige4.2-3b` | `Nanbeige/Nanbeige4.2-3B` |
 | `bonsai/bonsai-27b` | `prism-ml/Bonsai-27B-unpacked` |
 | `inkling/inkling-small` | `thinkingmachines/Inkling-Small` |
+| `openvla/openvla-7b` | `openvla/openvla-7b` |
+| `openpi/openpi-pi0-3b` | `lerobot/pi0_base` |
+| `openpi/openpi-pi0.5-3b` | `lerobot/pi05_base` |
+| `lingbot/lingbot-vla-v2-6b` | `robbyant/lingbot-vla-v2-6b` |
 
 每个家族目录：`quantize.py` + `config.yaml`（`base_model` / `default_bits` / `group_size` / `hadamard_seed`）。  
-权重须以 **safetensors** 可流式读取；若 Hub 仅有 GGUF，量化失败并抛明确错误（**不**解析 GGUF）。Bonsai 使用 unpacked FP16/BF16 仓，非 `*-gguf`。
+权重须以 **safetensors** 可流式读取；若 Hub 仅有 GGUF，量化失败并抛明确错误（**不**解析 GGUF）。Bonsai 使用 unpacked FP16/BF16 仓，非 `*-gguf`。  
+VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（含 vision / action head）；OpenPI 使用 LeRobot HF 权重，非 GCS 原版。
 
 ## 2. 功能边界
 

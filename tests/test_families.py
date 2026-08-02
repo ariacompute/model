@@ -34,6 +34,10 @@ EXPECTED = {
     "nanbeige/nanbeige4.2-3b": "Nanbeige/Nanbeige4.2-3B",
     "bonsai/bonsai-27b": "prism-ml/Bonsai-27B-unpacked",
     "inkling/inkling-small": "thinkingmachines/Inkling-Small",
+    "openvla/openvla-7b": "openvla/openvla-7b",
+    "openpi/openpi-pi0-3b": "lerobot/pi0_base",
+    "openpi/openpi-pi0.5-3b": "lerobot/pi05_base",
+    "lingbot/lingbot-vla-v2-6b": "robbyant/lingbot-vla-v2-6b",
 }
 
 
