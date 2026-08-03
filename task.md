@@ -18,3 +18,9 @@
 ## T11 — VLA 家族
 - [x] `openvla-7b` / `openpi-pi0-3b`（`lerobot/pi0_base`）/ `openpi-pi0.5-3b`（`lerobot/pi05_base`）/ `lingbot-vla-v2-6b`
 - [x] README 命令（`--out` 规范化）+ `test_families`
+
+## T12 — 质量审计 A+B
+- [x] `common/audit.py`：分层抽检 + rot/orig RMSE + 阈值字段
+- [x] `common/gen_compare.py`：text 短生成 / VLA action 前向（可 skip）
+- [x] `python -m common.audit_cli`；报告不 fail CI
+- [x] 单测 + README

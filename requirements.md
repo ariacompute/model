@@ -106,9 +106,31 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 3. 每个注册家族目录存在 `quantize.py` + `config.yaml`，且 `base_model` 与 §1.1 一致。
 4. `--tiny --bits 8` 写出 `quantization=q8`。
 5. `parse_bits(8)==8`；`parse_bits(5)` 仍拒绝。
+6. `python -m common.audit_cli layer …` 对 tiny bundle 写出 JSON 报告；**超阈值只记入报告，exit code 仍为 0**（不 fail CI）。
+
+## 6.1 质量审计（本增量）
+
+入口：**独立** `python -m common.audit_cli`（不挂在各家族 `quantize.py`）。
+
+### A — 层抽检（全模型）
+- 从 bundle 分层抽样若干 2D codebook 张量（默认 8；策略 `stratified`：embed / attn / ffn / vision|action / other）。
+- 对照源权重（`--model` HF 流式，或 `--ref tiny` 用合成 dict）：  
+  `rel_rmse_rot`（旋转域 dequant vs Hadamard(W)）与 `rel_rmse_orig`（逆 Hadamard 后 vs W）。
+- **报告阈值**（只写入报告的 `threshold` / `pass` 字段，**不**因此非零退出）：
+
+| bits | 原域 `rel_rmse_orig` 参考上界 |
+|------|-------------------------------|
+| 8 | ≤ 0.15 |
+| 4 | ≤ 0.35 |
+| 其它 / 混合 | ≤ 0.50（PLE/`q1.5` 层可再放宽至 0.80，报告内标注） |
+
+### B — 少量生成 / 前向对比（区分家族）
+- **`kind=text`**（Qwen / Gemma / LFM / Inkling / Nanbeige / Bonsai）：可选 `torch`+`transformers`，短 prompt 生成对比（token overlap 等）；缺依赖则报告 `skipped`。
+- **`kind=vla`**（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：不做文本生成；对少量 dummy 输入做 **action / 末层输出** 对比（余弦或 L2）；缺依赖或无法加载则 `skipped`。
+- 同样：**只出报告，不 fail CI**。
 
 ## 7. 目录
-`common/*` + §1.1 各家族 + `tests/` + 根文档。
+`common/*`（含 `audit.py` / `gen_compare.py` / `audit_cli.py`）+ §1.1 各家族 + `tests/` + 根文档。
 
 ## 8. 审核检查表（本增量）
 - [x] int8 = 码本 8-bit（K=256）为**唯一**路径
@@ -116,3 +138,4 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 - [x] §1.1 HF id（含 bonsai / inkling / nanbeige / lfm2.5-thinking）可接受
 - [x] Hub 无 safetensors 时失败（不解析 GGUF）可接受
 - [x] 批量家族薄封装（共用 `common.cli`）可接受
+- [x] A+B 审计：独立 `audit_cli`；阈值仅报告；text vs VLA 分流

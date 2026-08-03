@@ -1,0 +1,84 @@
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+from common import audit, cli, gen_compare
+from common.audit_cli import main as audit_main
+
+
+class TestAudit(unittest.TestCase):
+    def test_infer_kind(self):
+        self.assertEqual(audit.infer_kind(family="qwen3.5-2b"), "text")
+        self.assertEqual(audit.infer_kind(family="gemma-4-e2b-it"), "text")
+        self.assertEqual(audit.infer_kind(family="lfm2-350m"), "text")
+        self.assertEqual(audit.infer_kind(family="inkling-small"), "text")
+        self.assertEqual(audit.infer_kind(family="openvla-7b"), "vla")
+        self.assertEqual(audit.infer_kind(family="openpi-pi0-3b"), "vla")
+        self.assertEqual(audit.infer_kind(family="lingbot-vla-v2-6b"), "vla")
+        self.assertEqual(audit.infer_kind("./out/openpi-pi0.5-3b_q4"), "vla")
+
+    def test_threshold_table(self):
+        self.assertEqual(audit.threshold_orig_rmse(8), 0.15)
+        self.assertEqual(audit.threshold_orig_rmse(4), 0.35)
+        self.assertEqual(audit.threshold_orig_rmse(2, "blk.0.ffn_up.weight"), 0.80)
+        self.assertEqual(audit.threshold_orig_rmse(3, "blk.0.ffn_up.weight"), 0.50)
+
+    def test_layer_audit_tiny_cli_exit_zero(self):
+        family = Path(ROOT) / "gemma" / "gemma-4-e2b-it"
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "bundle"
+            args = cli.build_parser().parse_args(
+                ["--tiny", "--bits", "4", "--out", str(out), "--seed", "0"]
+            )
+            cli.run_quantize(args, str(family), label="test")
+            report_path = Path(td) / "audit_layer.json"
+            rc = audit_main(
+                [
+                    "layer",
+                    "--bundle",
+                    str(out),
+                    "--ref",
+                    "tiny",
+                    "--sample",
+                    "4",
+                    "--family",
+                    "gemma-4-e2b-it",
+                    "--report",
+                    str(report_path),
+                ]
+            )
+            self.assertEqual(rc, 0)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["mode"], "layer")
+            self.assertEqual(report["kind"], "text")
+            self.assertFalse(report["ci_fail"])
+            self.assertGreaterEqual(report["sample"], 1)
+            self.assertTrue(all("rel_rmse_orig" in r for r in report["layers"]))
+
+    def test_gen_compare_skips_without_forcing_fail(self):
+        family = Path(ROOT) / "openvla" / "openvla-7b"
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "bundle"
+            args = cli.build_parser().parse_args(
+                ["--tiny", "--bits", "4", "--out", str(out), "--seed", "0"]
+            )
+            cli.run_quantize(args, str(family), label="test")
+            report = gen_compare.run_gen_compare(
+                out,
+                "nonexistent/aria-audit-missing-model",
+                kind="vla",
+                family="openvla-7b",
+            )
+            self.assertEqual(report["kind"], "vla")
+            self.assertFalse(report.get("ci_fail", True))
+            self.assertIn(report.get("status"), ("skipped", "ok"))
+
+
+if __name__ == "__main__":
+    unittest.main()

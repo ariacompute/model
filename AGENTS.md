@@ -13,7 +13,7 @@
 默认 `group_size=32`、`codebook_share=group`；VL **默认量化 vision**。
 
 ## 目录
-- `common/`：errors / hadamard / codebook / quant / pack / bundle / hf_utils / cli / runtime
+- `common/`：errors / hadamard / codebook / quant / pack / bundle / hf_utils / cli / runtime / audit / gen_compare / audit_cli
 - `qwen/` `gemma/` `lfm/` `nanbeige/` `bonsai/` `inkling/` `openvla/` `openpi/` `lingbot/`：各模型 `quantize.py` + `config.yaml`
 - `tests/`：unittest；家族表见 `requirements.md` §1.1
 - 根：`AGENTS.md` / `requirements.md` / `task.md` / `README.md` / `requirements.txt`
@@ -32,6 +32,8 @@
 - `python gemma/gemma-4-e2b-it/quantize.py --bits 1.5 --workers 16`
 - `python qwen/qwen3.5-2b/quantize.py --bits 4`
 - `python lfm/lfm2-350m/quantize.py --tiny --bits 4`
+- `python -m common.audit_cli layer --bundle ./out/…_q4 --ref tiny --sample 8`
+- `python -m common.audit_cli gen --bundle ./out/…_q4 --model … --kind text|vla`
 
 ## 进行中需求
 见 `task.md`。Spec 见 `requirements.md`。

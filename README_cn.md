@@ -238,6 +238,43 @@ python gemma/gemma-4-e2b-it/quantize.py --bits 2.54 --out ./out/gemma-4-e2b-it_q
 python gemma/gemma-4-e2b-it/quantize.py --bits 3.26 --out ./out/gemma-4-e2b-it_q326
 ```
 
+## 质量审计
+
+```bash
+# A) 分层 RMSE（离线 tiny 对照）
+python -m common.audit_cli layer \
+  --bundle ./out/gemma-4-e2b-it_q4 \
+  --ref tiny \
+  --sample 8 \
+  --family gemma-4-e2b-it \
+  --report ./out/gemma-4-e2b-it_q4/audit_layer.json
+
+# A) 对照 HF 原权重
+python -m common.audit_cli layer \
+  --bundle ./out/qwen3.5-2b_q4 \
+  --model Qwen/Qwen3.5-2B \
+  --sample 8 \
+  --family qwen3.5-2b \
+  --report ./out/qwen3.5-2b_q4/audit_layer.json
+
+# B) 纯文本短生成对比（Qwen / Gemma / LFM / Inkling / …）
+python -m common.audit_cli gen \
+  --bundle ./out/qwen3.5-2b_q4 \
+  --model Qwen/Qwen3.5-2B \
+  --kind text \
+  --max-new-tokens 32 \
+  --report ./out/qwen3.5-2b_q4/audit_gen.json
+
+# B) VLA 前向 / 参数漂移对比（OpenVLA / OpenPI / LingBot）
+python -m common.audit_cli gen \
+  --bundle ./out/openvla-7b_q4 \
+  --model openvla/openvla-7b \
+  --kind vla \
+  --report ./out/openvla-7b_q4/audit_gen.json
+```
+
+报告阈值（原域 `rel_rmse_orig`）：q8 ≤ 0.15，q4 ≤ 0.35，其它/混合 ≤ 0.50（embed/PLE ≤ 0.80）；仅写入每层 `pass` 字段。
+
 ## 测试
 
 ```bash

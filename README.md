@@ -238,6 +238,43 @@ python gemma/gemma-4-e2b-it/quantize.py --bits 2.54 --out ./out/gemma-4-e2b-it_q
 python gemma/gemma-4-e2b-it/quantize.py --bits 3.26 --out ./out/gemma-4-e2b-it_q326
 ```
 
+## Quality audit
+
+```bash
+# A) Stratified layer RMSE (offline vs tiny ref)
+python -m common.audit_cli layer \
+  --bundle ./out/gemma-4-e2b-it_q4 \
+  --ref tiny \
+  --sample 8 \
+  --family gemma-4-e2b-it \
+  --report ./out/gemma-4-e2b-it_q4/audit_layer.json
+
+# A) Against HF reference weights
+python -m common.audit_cli layer \
+  --bundle ./out/qwen3.5-2b_q4 \
+  --model Qwen/Qwen3.5-2B \
+  --sample 8 \
+  --family qwen3.5-2b \
+  --report ./out/qwen3.5-2b_q4/audit_layer.json
+
+# B) Text short generation compare (Qwen / Gemma / LFM / Inkling / …)
+python -m common.audit_cli gen \
+  --bundle ./out/qwen3.5-2b_q4 \
+  --model Qwen/Qwen3.5-2B \
+  --kind text \
+  --max-new-tokens 32 \
+  --report ./out/qwen3.5-2b_q4/audit_gen.json
+
+# B) VLA forward / param-drift compare (OpenVLA / OpenPI / LingBot)
+python -m common.audit_cli gen \
+  --bundle ./out/openvla-7b_q4 \
+  --model openvla/openvla-7b \
+  --kind vla \
+  --report ./out/openvla-7b_q4/audit_gen.json
+```
+
+Report thresholds (orig-space `rel_rmse_orig`): q8 ≤ 0.15, q4 ≤ 0.35, other/mixed ≤ 0.50 (embed/PLE ≤ 0.80). Stored as `pass` per layer only.
+
 ## Tests
 
 ```bash
