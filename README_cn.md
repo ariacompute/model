@@ -289,3 +289,11 @@ python -m unittest discover -s tests -t .
 - 仅对 **2D** 权重做码本量化；1D（如 RMSNorm）以 raw fp16 旁路写入。
 - 产物目录（`./out/`、`**/weights/`、`*.bin`）已 gitignore，勿提交大文件。
 - 本仓库**不**导出 GGUF；live `engine` 的量化加载器暂不在范围内。
+
+## 工程规范
+
+本仓库遵循 Harness Engineering 理念：
+
+- [`AGENTS.md`](AGENTS.md)：Agent 工程上下文入口与目录索引
+- [`requirements.md`](requirements.md)：需求规格（功能边界/异常/验收标准，人工审核制）
+- [`task.md`](task.md)：实施任务清单

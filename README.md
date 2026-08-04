@@ -293,3 +293,11 @@ python -m unittest discover -s tests -t .
 - Only **2D** weights are codebook-quantized; 1D tensors (e.g. RMSNorm) are stored as raw fp16.
 - Product dirs (`./out/`, `**/weights/`, `*.bin`) are gitignored — do not commit multi-GB artifacts.
 - This repo does **not** emit GGUF; live `engine` quant loaders are out of scope for now.
+
+## Engineering Conventions
+
+This repository follows the Harness Engineering philosophy:
+
+- [`AGENTS.md`](AGENTS.md): Agent engineering context entry and directory index
+- [`requirements.md`](requirements.md): Requirements spec (feature boundaries/exceptions/acceptance criteria, human-review-gated)
+- [`task.md`](task.md): Implementation task checklist
