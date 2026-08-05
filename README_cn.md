@@ -323,7 +323,7 @@ python -m common.audit_cli gen \
   --report ./out/openvla-7b_q4/audit_gen.json
 ```
 
-报告阈值（pad-aware 原域 `rel_rmse_orig`）：q8 ≤ 0.15，q4 ≤ 0.35，其它/混合 ≤ 0.50（embed/PLE ≤ 0.80）。非 2 幂另报 `rel_rmse_orig_zeropad` 与更宽的 `threshold_orig_zeropad`；`pass` 仅看 ref_fill 原域。
+报告阈值（blocked 逆变换原域 `rel_rmse_orig`）：q8 ≤ 0.15，q4 ≤ 0.35，其它/混合 ≤ 0.50（embed/PLE ≤ 0.80）。新产物 `format_version=2` + blocked Hadamard（旧 pad-crop bundle 需重量化）。
 
 ## 测试
 
@@ -333,7 +333,7 @@ python -m unittest discover -s tests -t .
 
 ## 说明
 
-- 流式 I/O 只降低峰值内存；**每张 2D 权重**仍完整执行 **Hadamard 旋转（`H @ W`，axis=0）** 与 **Lloyd-Max 码本量化**。大矩阵用按列分块 FWHT（与一次性 `H @ W` 数学等价），**不会跳过旋转**。
+- 流式 I/O 只降低峰值内存；**每张 2D 权重**仍完整执行 **blocked Hadamard**（greedy 2 幂行分块，`H_B@S_B`）与 **Lloyd-Max 码本量化**。无全局 pad/裁剪；原域经 `S_B@H_B` 精确重建。engine HDM 对激活使用相同分块。
 - 默认 **`--codebook-share group`**：每个 row-group 共用一份码本。已装 CUDA torch 时，group 路径自动用
   `lloyd_max_batched_torch`；否则 CPU numpy（可用 `--workers`）。`--codebook-share channel` 精度更高、体积更大，亦可走 GPU。
 - **`--bits 1.5`**：PLE / 大 embedding 默认 **1 bit**，计算层 **2–3 bit**，按**参数量加权**平均约 1.35–1.55；Gemma-4-E2B 目标 `weight.bin` **&lt; 1 GB**。

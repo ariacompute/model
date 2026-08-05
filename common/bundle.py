@@ -106,7 +106,7 @@ class BundleWriter:
             self._fh.close()
         config = {
             "format": BUNDLE_FORMAT,
-            "format_version": 1,
+            "format_version": 2,
             "quantization": self.quantization,
             "group_size_default": self.group_size_default,
             "hadamard_seed": self.hadamard_seed,

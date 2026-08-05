@@ -491,7 +491,7 @@ def quantize_weight(
             input_scale_recip=empty,
             norms=empty,
             hadamard_meta=hmeta,
-            row_pad=int(hmeta.get("row_pad", 0)) + gpad,
+            row_pad=gpad,
             codebook_share="group",
         )
 
@@ -541,7 +541,7 @@ def quantize_weight(
         input_scale_recip=empty,
         norms=empty,
         hadamard_meta=hmeta,
-        row_pad=int(hmeta.get("row_pad", 0)) + gpad,
+        row_pad=gpad,
         codebook_share="channel",
     )
 
@@ -585,3 +585,16 @@ def dequantize(t: QuantTensor) -> np.ndarray:
             for j in range(n):
                 out[rows, j] = cb_arr[g, j, idx_mat[rows, j]]
     return out[:k0, :]
+
+
+def reconstruct_weight(t: QuantTensor, seed: int | None = None) -> np.ndarray:
+    """Dequant rotated codebook then blocked unrotate → original-space ``(K, N)``."""
+    from . import hadamard
+
+    recon_rot = dequantize(t)
+    if seed is None:
+        seed = t.hadamard_meta.get("seed")
+    out, meta = hadamard.hadamard_unrotate(recon_rot, axis=0, seed=seed)
+    if not meta.get("applied"):
+        raise QuantError("Hadamard unrotate failed during reconstruct_weight")
+    return out

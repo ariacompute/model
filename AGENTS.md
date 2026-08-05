@@ -40,6 +40,6 @@
 见 `task.md`。Spec 见 `requirements.md`。
 
 ## 注意事项
-- 黄金路径：q4/q8 tiny → `load_bundle` → `dequantize` 误差有界。
-- 流式不得跳过 Hadamard/Lloyd-Max；需 **safetensors**（不解析 GGUF）。
-- 不做剪枝/蒸馏/对称 int8 旁路；不动 live `engine`/`serve`。
+- 黄金路径：q4/q8 tiny → `load_bundle` → `dequantize` / `reconstruct_weight` 误差有界。
+- Hadamard = **blocked**（`format_version=2`）；流式不得跳过 Hadamard/Lloyd-Max；需 **safetensors**。
+- 不做剪枝/蒸馏/对称 int8 旁路；与 **engine** 协同 blocked HDM。

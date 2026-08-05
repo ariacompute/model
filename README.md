@@ -323,7 +323,7 @@ python -m common.audit_cli gen \
   --report ./out/openvla-7b_q4/audit_gen.json
 ```
 
-Report thresholds (pad-aware orig `rel_rmse_orig`): q8 ≤ 0.15, q4 ≤ 0.35, other/mixed ≤ 0.50 (embed/PLE ≤ 0.80). Non-pow2 rows also report `rel_rmse_orig_zeropad` with a wider `threshold_orig_zeropad`. `pass` uses ref-fill orig only.
+Report thresholds (orig-space `rel_rmse_orig` via blocked unrotate): q8 ≤ 0.15, q4 ≤ 0.35, other/mixed ≤ 0.50 (embed/PLE ≤ 0.80). New bundles use `format_version=2` + blocked Hadamard (re-quantize old pad-crop bundles).
 
 ## Tests
 
@@ -334,8 +334,8 @@ python -m unittest discover -s tests -t .
 ## Notes
 
 - Streaming I/O only limits peak memory; **every 2D weight** still runs full
-  **Hadamard rotation (`H @ W`, axis=0)** then **Lloyd-Max codebook quantization**.
-  Large matrices use column-chunked FWHT (same math as one-shot `H @ W`), never skip rotation.
+  **blocked Hadamard** (greedy pow2 row tiles, `H_B@S_B`) then **Lloyd-Max codebook quantization**.
+  No global pad/crop; orig reconstruct is exact via `S_B@H_B`. Engine HDM applies the same tiles to activations.
 - Default **`--codebook-share group`**: one codebook per row-group (shared across channels).
   With CUDA + torch, group Lloyd-Max uses batched GPU (`lloyd_max_batched_torch`); otherwise
   CPU numpy (+ `--workers`). Use `--codebook-share channel` for higher fidelity (larger `weight.bin`;

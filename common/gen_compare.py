@@ -40,7 +40,7 @@ def _inject_bundle_weights(model, tensors: dict, hadamard_seed: int) -> int:
             if name not in sd:
                 continue
             recon_rot = quant.dequantize(obj)
-            recon = audit.inverse_hadamard(recon_rot, hadamard_seed)
+            recon = quant.reconstruct_weight(obj, hadamard_seed)
             t = sd[name]
             if tuple(t.shape) != recon.shape:
                 continue

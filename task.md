@@ -28,3 +28,8 @@
 ## T13 — group 路径 GPU Lloyd-Max
 - [x] `lloyd_max_batched_torch`；`codebook_share=group` 在 CUDA 可用时自动选用
 - [x] 无 CUDA 时 CPU numpy（workers 并行）；单测（torch CPU batched）
+
+## T14 — Blocked Hadamard（协议 B，与 engine 协同）
+- [x] `hadamard_rotate` / `unrotate`：greedy 2 幂分块；meta `mode=blocked`
+- [x] bundle `format_version=2`；`reconstruct_weight`；audit 原域 ≈ rot
+- [x] 单测非 2 幂 roundtrip；README / AGENTS

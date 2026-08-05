@@ -14,7 +14,7 @@
 - **默认 `group_size=32`**；**默认 `codebook_share=group`**。
 - **VL / 多模态**：默认**量化 vision（及存在的 audio）塔**全部 2D 权重；不提供 text-only 跳过开关（本阶段）。
 - **体积目标（可选）**：Gemma-4-E2B + `--bits 1.5` + `group` → `weight.bin` **&lt; 1 GB**（已验收 ~993 MB）。
-- **不动 live `engine` / `serve`**。
+- **本增量与 `engine` 协同 **blocked Hadamard**（`format_version=2`）。
 
 ### 1.1 家族注册表
 
@@ -57,37 +57,41 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 
 | # | 特性 | 实现深度 |
 |---|------|----------|
-| 1 | Hadamard | `H@W` axis=0；分块 FWHT；**禁止跳过** |
+| 1 | Hadamard | axis=0 **blocked** FWHT：greedy 最大 2 幂分块，每块 `H_B@S_B`；**禁止**全局 pad→crop；**禁止跳过**（`K=1` 为恒等） |
 | 2 | 码本 | Lloyd-Max，`K=2^bits`（含 **K=256 for bits=8**） |
 | 3 | 位宽 | `1/2/3/4/8` → `q1`–`q4`/`q8`；混合 `1.5`/`2.54`/`3.26` |
 | 4 | int8 | **仅**码本 8-bit；无对称 int8 / GPTQ 旁路 |
 | 5 | 混合精度 | §3.4（`2.54`/`3.26` 层数；`1.5` 参数加权） |
-| 6 | Bundle | 流式 `BundleWriter`；VL 全量 2D（含 vision） |
+| 6 | Bundle | 流式 `BundleWriter`；`format_version=2`；VL 全量 2D（含 vision） |
 | 7 | 旁路 | 仅 ndim==2 码本；1D raw fp16/fp32 |
 | 8 | 主机 | 参考：**H200**（16 vCPU / 200 GiB / 141 GiB）或 **RTX PRO 6000**（24 vCPU / 218 GiB / 96 GiB）；`runtime.py` 按 RAM/VRAM 定预算；CUDA 时 `group`→`lloyd_max_batched_torch`，`channel`→`lloyd_max_columns_torch` |
 
 ### 2.1 非目标
 - QuaRot / SpinQuant；Embedding 专用标量路径；GPTQ / AWQ；剪枝 / 蒸馏
 - **解析 / 导出 GGUF**；对称 per-channel int8（非码本）
-- 修改 live `engine` / `serve`；提交多 GB 权重进 Git
+- 提交多 GB 权重进 Git
 - text-only 跳过 vision（本阶段）
+- 持久化 Hadamard pad 行（协议 A）；本增量与 **engine** 协同 blocked HDM
 
 ## 3. API 边界
 
 ### 3.1–3.2 hadamard / codebook
-不变；`lloyd_max(..., k=256)` 必须可用。
+- `hadamard_rotate` / `hadamard_unrotate`：**blocked**（`mode=blocked`，`blocks=[{start,size},…]`）；逆为每块 `S@H`，非二次正向；±1 用 `portable_block_signs`（与 engine SplitMix 对齐）。
+- 全局 pad→crop **仅**作 legacy（`format_version<2`）审计辅助，非量化热路径。
+- `lloyd_max(..., k=256)` 必须可用。
 
 ### 3.3 `common/quant.py` + `pack.py`
 - 整数位宽集合：**`{1,2,3,4,8}`**。
 - `pack` / `unpack`：1–4 为 LSB-first 位打包；**8-bit 为每索引 1 字节**（`uint8` 原始字节，等价于满字节打包）。
-- `quantize_weight` / `dequantize`：支持 `bits=8`；索引仍存 `uint8`（0–255）。
+- `quantize_weight` / `dequantize`：支持 `bits=8`；索引仍存 `uint8`（0–255）；`row_pad` **仅** group 对齐 pad。
+- `reconstruct_weight(t, seed)`：dequant → blocked unrotate → 原域 `(K,N)`。
 - `codebook_share` group/channel 行为不变。
 
 ### 3.4 混合精度
 - `2.54` / `3.26` / `1.5`：既有行为不变；混合档**不**分配 bit=8（hi 上限仍 4）。
 
 ### 3.5–3.8 bundle / hf / cli
-- `quantization` label 含 **`q8`**。
+- `format_version=**2**`；`quantization` label 含 **`q8`**。
 - CLI：`--bits` 接受 `8`；其余标志不变。
 - 流式：`load_model_info` →（若 `1.5`）加权分配 → `stream_weights` 逐张量量化。
 
@@ -116,16 +120,16 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 ### A — 层抽检（全模型）
 - 从 bundle 分层抽样若干 2D codebook 张量（默认 8；策略 `stratified`：embed / attn / ffn / vision|action / other）。
 - 对照源权重（`--model` / `--family` 解析 HF 流式，或 `--ref tiny` 用合成 dict，**仅**匹配 `quantize.py --tiny` 产物）：
-  `rel_rmse_rot`（旋转域 dequant vs Hadamard(W)）与 `rel_rmse_orig`（**pad-aware** 逆 Hadamard：非 2 幂时用参考权重填旋转域 pad 行，隔离量化误差；另报 `rel_rmse_orig_zeropad` 对应推理零填）。
+  `rel_rmse_rot`（旋转域 dequant vs blocked Hadamard(W)）与 `rel_rmse_orig`（`reconstruct_weight` = dequant → blocked unrotate；v2 上应 ≈ rot）。
 - **报告阈值**（只写入报告的 `threshold` / `pass` 字段，**不**因此非零退出）：
 
-| bits | 原域 `rel_rmse_orig`（ref_fill）参考上界 |
-|------|------------------------------------------|
+| bits | 原域 `rel_rmse_orig` 参考上界 |
+|------|-------------------------------|
 | 8 | ≤ 0.15 |
 | 4 | ≤ 0.35 |
 | 其它 / 混合 | ≤ 0.50（PLE/`q1.5` 层可再放宽至 0.80，报告内标注） |
 
-非 2 幂另给 `threshold_orig_zeropad`（约 2× 上表，且 ≥0.60，封顶 1.0），仅约束 `pass_zeropad`。
+Legacy `format_version<2`（全局 pad-crop）仍可报 `rel_rmse_orig_zeropad` / `ref_fill` 辅助字段；**新产物以 blocked 原域 `pass` 为准**。
 
 ### B — 少量生成 / 前向对比（区分家族）
 - **`kind=text`**（Qwen / Gemma / LFM / Inkling / Nanbeige / Bonsai）：可选 `torch`+`transformers`，短 prompt 生成对比（token overlap 等）；缺依赖则报告 `skipped`。
@@ -142,3 +146,4 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 - [x] Hub 无 safetensors 时失败（不解析 GGUF）可接受
 - [x] 批量家族薄封装（共用 `common.cli`）可接受
 - [x] A+B 审计：独立 `audit_cli`；阈值仅报告；text vs VLA 分流
+- [x] Hadamard **blocked**（无全局 pad-crop）；`format_version=2`；与 engine HDM 契约对齐
