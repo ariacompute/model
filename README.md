@@ -291,21 +291,21 @@ python gemma/gemma-4-e2b-it/quantize.py --bits 3.26 --out ./out/gemma-4-e2b-it_q
 ## Quality audit
 
 ```bash
-# A) Stratified layer RMSE (offline vs tiny ref)
+# A) Stratified layer RMSE (offline vs tiny ref — only for --tiny bundles)
 python -m common.audit_cli layer \
-  --bundle ./out/gemma-4-e2b-it_q4 \
+  --bundle ./out/gemma-4-e2b-it_tiny_q4 \
   --ref tiny \
   --sample 8 \
   --family gemma-4-e2b-it \
-  --report ./out/gemma-4-e2b-it_q4/audit_layer.json
+  --report ./out/gemma-4-e2b-it_tiny_q4/audit_layer.json
 
-# A) Against HF reference weights
+# A) Against HF reference weights (full quant bundles; --family resolves base_model)
 python -m common.audit_cli layer \
   --bundle ./out/qwen3.5-2b_q4 \
-  --model Qwen/Qwen3.5-2B \
-  --sample 8 \
   --family qwen3.5-2b \
+  --sample 8 \
   --report ./out/qwen3.5-2b_q4/audit_layer.json
+# or explicitly: --model Qwen/Qwen3.5-2B
 
 # B) Text short generation compare (Qwen / Gemma / LFM / Inkling / …)
 python -m common.audit_cli gen \

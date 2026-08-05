@@ -8,8 +8,9 @@ from pathlib import Path
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from common import audit, cli, gen_compare
+from common import audit, cli, gen_compare, hf_utils
 from common.audit_cli import main as audit_main
+from common.errors import ConfigError
 
 
 class TestAudit(unittest.TestCase):
@@ -28,6 +29,25 @@ class TestAudit(unittest.TestCase):
         self.assertEqual(audit.threshold_orig_rmse(4), 0.35)
         self.assertEqual(audit.threshold_orig_rmse(2, "blk.0.ffn_up.weight"), 0.80)
         self.assertEqual(audit.threshold_orig_rmse(3, "blk.0.ffn_up.weight"), 0.50)
+
+    def test_resolve_family_base_model(self):
+        self.assertEqual(audit.resolve_family_base_model("qwen3-0.6b"), "Qwen/Qwen3-0.6B")
+        self.assertEqual(
+            audit.resolve_family_base_model("qwen/qwen3-0.6b"), "Qwen/Qwen3-0.6B"
+        )
+        self.assertIsNone(audit.resolve_family_base_model("no-such-family-xyz"))
+
+    def test_tiny_ref_rejects_hf_tensor_names(self):
+        with self.assertRaises(ConfigError) as cm:
+            audit.load_ref_weights(
+                ["model.embed_tokens.weight"],
+                ref_tiny=True,
+                tiny_seed=0,
+            )
+        msg = str(cm.exception)
+        self.assertIn("--ref tiny", msg)
+        self.assertIn("--model", msg)
+        self.assertNotIn("model.embed_tokens.weight", hf_utils.make_tiny_state_dict(0))
 
     def test_layer_audit_tiny_cli_exit_zero(self):
         family = Path(ROOT) / "gemma" / "gemma-4-e2b-it"

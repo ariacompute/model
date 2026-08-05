@@ -20,16 +20,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     pl = sub.add_parser("layer", help="Stratified layer RMSE audit")
     pl.add_argument("--bundle", required=True, help="bundle directory (config.json + weight.bin)")
-    pl.add_argument("--model", default=None, help="HF repo id for reference weights")
+    pl.add_argument(
+        "--model",
+        default=None,
+        help="HF repo id for reference weights (optional if --family resolves base_model)",
+    )
     pl.add_argument(
         "--ref",
         choices=("hf", "tiny"),
         default="hf",
-        help="hf=stream from --model; tiny=synthetic state dict (offline)",
+        help="hf=stream from --model/--family; tiny=synthetic dict (only for --tiny bundles)",
     )
     pl.add_argument("--sample", type=int, default=8, help="number of tensors to sample")
     pl.add_argument("--seed", type=int, default=0, help="sampling RNG seed")
-    pl.add_argument("--family", default=None, help="optional family slug for kind inference")
+    pl.add_argument(
+        "--family",
+        default=None,
+        help="family slug (kind + optional base_model resolution, e.g. qwen3-0.6b)",
+    )
     pl.add_argument(
         "--report",
         default=None,

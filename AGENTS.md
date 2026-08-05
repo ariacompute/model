@@ -32,7 +32,8 @@
 - `python gemma/gemma-4-e2b-it/quantize.py --bits 1.5 --workers 16`
 - `python qwen/qwen3.5-2b/quantize.py --bits 4`
 - `python lfm/lfm2-350m/quantize.py --tiny --bits 4`
-- `python -m common.audit_cli layer --bundle ./out/…_q4 --ref tiny --sample 8`
+- `python -m common.audit_cli layer --bundle ./out/…_tiny_q4 --ref tiny --sample 8`
+- `python -m common.audit_cli layer --bundle ./out/…_q4 --family qwen3.5-2b --sample 8`
 - `python -m common.audit_cli gen --bundle ./out/…_q4 --model … --kind text|vla`
 
 ## 进行中需求

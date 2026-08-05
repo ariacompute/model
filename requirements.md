@@ -115,7 +115,7 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 
 ### A — 层抽检（全模型）
 - 从 bundle 分层抽样若干 2D codebook 张量（默认 8；策略 `stratified`：embed / attn / ffn / vision|action / other）。
-- 对照源权重（`--model` HF 流式，或 `--ref tiny` 用合成 dict）：  
+- 对照源权重（`--model` / `--family` 解析 HF 流式，或 `--ref tiny` 用合成 dict，**仅**匹配 `quantize.py --tiny` 产物）：
   `rel_rmse_rot`（旋转域 dequant vs Hadamard(W)）与 `rel_rmse_orig`（逆 Hadamard 后 vs W）。
 - **报告阈值**（只写入报告的 `threshold` / `pass` 字段，**不**因此非零退出）：
 

@@ -154,6 +154,38 @@ def audit_one_tensor(
     }
 
 
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def resolve_family_base_model(family: str | None) -> str | None:
+    """Load ``base_model`` from a registered family ``config.yaml`` (slug or rel path)."""
+    if not family:
+        return None
+    fam = family.strip().strip("/")
+    if not fam:
+        return None
+    root = repo_root()
+    candidates: list[Path] = []
+    direct = root / fam / "config.yaml"
+    if direct.is_file():
+        candidates.append(direct)
+    else:
+        candidates.extend(sorted(root.glob(f"**/{fam}/config.yaml")))
+    for cfg_path in candidates:
+        try:
+            import yaml
+        except ImportError as e:
+            raise ConfigError(f"pyyaml required to read family config: {e}") from e
+        data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+        if not isinstance(data, dict):
+            continue
+        base = data.get("base_model")
+        if isinstance(base, str) and base.strip():
+            return base.strip()
+    return None
+
+
 def load_ref_weights(
     names: Iterable[str],
     *,
@@ -166,10 +198,15 @@ def load_ref_weights(
         sd = hf_utils.make_tiny_state_dict(seed=tiny_seed)
         missing = sorted(want - set(sd))
         if missing:
-            raise ConfigError(f"tiny ref missing tensors: {missing[:5]}")
+            raise ConfigError(
+                "tiny ref missing tensors: "
+                f"{missing[:5]}. --ref tiny only matches bundles built with "
+                "`quantize.py --tiny`. For HF quant bundles use "
+                "`--ref hf --model <HF_ID>` (or pass --family to resolve base_model)."
+            )
         return {n: sd[n] for n in want}
     if not model:
-        raise ConfigError("--model is required unless --ref tiny")
+        raise ConfigError("--model is required unless --ref tiny (or pass --family)")
     found: dict[str, np.ndarray] = {}
     for name, arr in hf_utils.stream_weights(model):
         if name in want:
@@ -195,12 +232,34 @@ def run_layer_audit(
     codebook_names = sorted(
         n for n, t in tensors.items() if isinstance(t, quant.QuantTensor)
     )
-    picked = stratified_sample(codebook_names, sample, seed=seed)
     hadamard_seed = cfg.get("hadamard_seed")
     if hadamard_seed is None:
         hadamard_seed = 0
+
+    resolved_model = model
+    if not ref_tiny and not resolved_model:
+        resolved_model = resolve_family_base_model(family)
+
+    if ref_tiny:
+        tiny_sd = hf_utils.make_tiny_state_dict(seed=int(hadamard_seed))
+        tiny_names = [n for n in codebook_names if n in tiny_sd]
+        if not tiny_names:
+            hint_model = resolved_model or resolve_family_base_model(family) or "<HF_ID>"
+            raise ConfigError(
+                "bundle has no synthetic tiny tensor names "
+                f"(example: {codebook_names[0]!r}). "
+                "--ref tiny is only for bundles from `quantize.py --tiny`. "
+                f"For this HF quant bundle use: --ref hf --model {hint_model}"
+                + (" (or omit --ref; default is hf)" if hint_model != "<HF_ID>" else "")
+            )
+        codebook_names = tiny_names
+
+    picked = stratified_sample(codebook_names, sample, seed=seed)
     refs = load_ref_weights(
-        picked, model=model, ref_tiny=ref_tiny, tiny_seed=int(hadamard_seed)
+        picked,
+        model=resolved_model,
+        ref_tiny=ref_tiny,
+        tiny_seed=int(hadamard_seed),
     )
     rows = [
         audit_one_tensor(n, tensors[n], refs[n], int(hadamard_seed))
@@ -212,7 +271,7 @@ def run_layer_audit(
         "mode": "layer",
         "kind": kind,
         "bundle": str(Path(bundle_dir).resolve()),
-        "model": model,
+        "model": resolved_model,
         "ref": "tiny" if ref_tiny else "hf",
         "quantization": cfg.get("quantization"),
         "sample": len(rows),
