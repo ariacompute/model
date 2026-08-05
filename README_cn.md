@@ -19,13 +19,48 @@ VL 默认量化 vision。权重须为 **safetensors**（不解析 GGUF）。
 # 在仓库根目录
 uv venv .venv && source .venv/bin/activate   # 或: python3 -m venv .venv
 uv pip install -r requirements.txt           # 或: pip install -r requirements.txt
-# 完整 HF 路径可选：
-uv pip install torch transformers
-# 可选 CUDA 加速（group / channel 的 Lloyd-Max 在 torch.cuda.is_available() 时走 GPU）：
-uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+# 可选 HF 辅助（仅 CPU torch 也可装 transformers）：
+# uv pip install transformers
 
 export HF_TOKEN=...   # 提高 Hub 限流（全量下载建议设置）
 ```
+
+### CUDA 版 PyTorch（GPU Lloyd-Max）
+
+`codebook_share=group` / `channel` 仅在 `torch.cuda.is_available()` **且** wheel 含本机 GPU 架构时走 GPU。
+按显卡选择 index：
+
+| 主机 GPU | 架构 | 安装 |
+|----------|------|------|
+| **H200**（Hopper） | `sm_90` | `cu124` 或 `cu128` |
+| **RTX PRO 6000**（Blackwell Server Edition） | **`sm_120`** | **仅 `cu128`**（PyTorch ≥ 2.7）— **不要**用 `cu124` |
+
+```bash
+# H200（Hopper）— 两者均可
+uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+# 或: uv pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+# RTX PRO 6000 Blackwell — 必须 CUDA 12.8+ wheel（sm_120）
+uv pip uninstall torch torchvision torchaudio   # 先卸掉误装的 cu124
+uv pip install torch --index-url https://download.pytorch.org/whl/cu128
+# 若仍有问题: uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128
+```
+
+量化前自检（Blackwell 尤其重要）：
+
+```bash
+python - <<'PY'
+import torch
+print(torch.__version__, torch.version.cuda, torch.cuda.is_available())
+print("capability", torch.cuda.get_device_capability(0))
+print("arch", torch.cuda.get_arch_list())
+print("ok", torch.randn(4, device="cuda").sum().item())
+PY
+```
+
+在 RTX PRO 6000 上，`arch` 须包含 **`sm_120`**。若出现
+`no kernel image is available for execution on the device`，说明仍是 `cu124`（或更旧）构建，
+请改用 `cu128` 重装。
 
 核心量化依赖 **numpy**（读 `config.yaml` 还需 **pyyaml**）。真实 HF 下载另需 **safetensors**、**huggingface_hub**。
 
@@ -37,9 +72,10 @@ export HF_TOKEN=...   # 提高 Hub 限流（全量下载建议设置）
 |--|----------|------------------|
 | CPU | **16 vCPU** | **24 vCPU** |
 | 主机内存 | **200 GiB** | **218 GiB** |
-| GPU | **1× NVIDIA H200 NVLink** | **1× NVIDIA RTX PRO 6000** |
+| GPU | **1× NVIDIA H200 NVLink**（Hopper） | **1× NVIDIA RTX PRO 6000**（Blackwell，`sm_120`） |
 | 显存 | **141 GiB** | **96 GiB** |
 | 建议 `--workers` | 16 | 24 |
+| PyTorch CUDA wheel | `cu124` 或 `cu128` | **`cu128`**（不要用 `cu124`） |
 
 已安装 CUDA 版 torch 时，`codebook_share=group` 使用按显存自适应批大小的 GPU Lloyd-Max；无 GPU 时回退 CPU（`--workers`，默认 `min(32, cpu_count)`）。
 

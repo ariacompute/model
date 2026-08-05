@@ -19,13 +19,48 @@ VL models quantize vision towers by default. Weights must be **safetensors** (GG
 # from repo root
 uv venv .venv && source .venv/bin/activate   # or: python3 -m venv .venv
 uv pip install -r requirements.txt           # or: pip install -r requirements.txt
-# optional, for full HF model load path:
-uv pip install torch transformers
-# optional CUDA speedup (group + channel Lloyd-Max when torch.cuda.is_available()):
-uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+# optional HF extras (CPU torch is enough for transformers helpers):
+# uv pip install transformers
 
 export HF_TOKEN=...   # higher Hub rate limits (recommended for full downloads)
 ```
+
+### CUDA PyTorch (GPU Lloyd-Max)
+
+`codebook_share=group` / `channel` use GPU when `torch.cuda.is_available()` **and** the wheel
+includes your GPU arch. Pick the index by GPU:
+
+| Host GPU | Arch | Install |
+|----------|------|---------|
+| **H200** (Hopper) | `sm_90` | `cu124` or `cu128` |
+| **RTX PRO 6000** (Blackwell Server Edition) | **`sm_120`** | **`cu128` only** (PyTorch ≥ 2.7) — **not** `cu124` |
+
+```bash
+# H200 (Hopper) — either is fine
+uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+# or: uv pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+# RTX PRO 6000 Blackwell — must use CUDA 12.8+ wheels (sm_120)
+uv pip uninstall torch torchvision torchaudio   # remove any cu124 install first
+uv pip install torch --index-url https://download.pytorch.org/whl/cu128
+# if needed: uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128
+```
+
+Verify before quantizing (especially on Blackwell):
+
+```bash
+python - <<'PY'
+import torch
+print(torch.__version__, torch.version.cuda, torch.cuda.is_available())
+print("capability", torch.cuda.get_device_capability(0))
+print("arch", torch.cuda.get_arch_list())
+print("ok", torch.randn(4, device="cuda").sum().item())
+PY
+```
+
+On RTX PRO 6000, `arch` must list **`sm_120`**. If you see
+`no kernel image is available for execution on the device`, you still have a `cu124` (or older)
+build — reinstall with `cu128`.
 
 Core quant path needs **numpy** (+ **pyyaml** for `config.yaml`). Real HF downloads also need **safetensors** and **huggingface_hub**.
 
@@ -37,9 +72,10 @@ Validated targets for full-model runs (either box is fine; VRAM drives GPU batch
 |--|----------|------------------|
 | CPU | **16 vCPUs** | **24 vCPUs** |
 | Host RAM | **200 GiB** | **218 GiB** |
-| GPU | **1× NVIDIA H200 NVLink** | **1× NVIDIA RTX PRO 6000** |
+| GPU | **1× NVIDIA H200 NVLink** (Hopper) | **1× NVIDIA RTX PRO 6000** (Blackwell, `sm_120`) |
 | GPU memory | **141 GiB** | **96 GiB** |
 | Suggested `--workers` | 16 | 24 |
+| PyTorch CUDA wheel | `cu124` or `cu128` | **`cu128`** (not `cu124`) |
 
 With CUDA torch installed, `codebook_share=group` uses batched GPU Lloyd-Max sized from device VRAM; CPU fallback uses `--workers` (default `min(32, cpu_count)`).
 
