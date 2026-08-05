@@ -103,6 +103,87 @@ def lloyd_max_columns(
     return codebooks, scales, norms, indices
 
 
+def lloyd_max_batched_torch(
+    batch: np.ndarray,
+    k: int,
+    max_iter: int = 50,
+    tol: float = 1e-6,
+    seed: int | None = 0,
+    device: str | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Batched 1D Lloyd-Max on GPU (or CPU torch) for ``codebook_share=group``.
+
+    ``batch`` shape ``(B, L)`` — each row is one flattened row-group.
+    Returns ``(codebooks, indices)`` with shapes ``(B, k)`` and ``(B, L)`` (uint8).
+    """
+    import torch
+
+    batch = np.asarray(batch, dtype=np.float32)
+    if batch.ndim != 2:
+        raise QuantError(f"lloyd_max_batched_torch expects 2D (B, L), got {batch.shape}")
+    bsz, length = batch.shape
+    if bsz < 1 or length < 1:
+        raise QuantError("lloyd_max_batched_torch on empty batch")
+    if k < 1:
+        raise QuantError(f"codebook k must be >=1, got {k}")
+    if not np.isfinite(batch).all():
+        raise QuantError("lloyd_max_batched_torch input contains non-finite values")
+
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    dev = torch.device(device)
+    x = torch.from_numpy(batch.copy()).to(dev)  # (B, L)
+
+    xs, _ = torch.sort(x, dim=1)
+    idx_lo = max(0, int(0.02 * (length - 1)))
+    idx_hi = min(length - 1, int(0.98 * (length - 1)))
+    lo = xs[:, idx_lo]
+    hi = xs[:, idx_hi]
+    # Constant rows: expand lo slightly so linspace is well-defined.
+    hi = torch.where(hi <= lo, lo + 1e-6, hi)
+    t = torch.linspace(0, 1, k, device=dev, dtype=x.dtype)
+    codebook = lo[:, None] + (hi - lo)[:, None] * t[None, :]  # (B, k)
+    if seed is not None:
+        for bi in range(bsz):
+            g = torch.Generator(device=dev)
+            g.manual_seed(int(seed + bi * 10007) & 0xFFFFFFFF)
+            codebook[bi] = codebook[bi] + torch.randn(
+                (k,), generator=g, device=dev, dtype=x.dtype
+            ) * 1e-8
+
+    prev = None
+    for _ in range(max_iter):
+        dist = (x[:, :, None] - codebook[:, None, :]).abs()  # (B, L, k)
+        labels = dist.argmin(dim=-1)  # (B, L)
+        new_cb = codebook.clone()
+        for ci in range(k):
+            mask = labels == ci  # (B, L)
+            counts = mask.sum(dim=1).clamp_min(1)
+            summed = torch.where(mask, x, torch.zeros_like(x)).sum(dim=1)
+            means = summed / counts
+            empty = mask.sum(dim=1) == 0
+            if empty.any():
+                n_empty = int(empty.sum().item())
+                rows = torch.nonzero(empty, as_tuple=False).squeeze(1)
+                pick = torch.randint(0, length, (n_empty,), device=dev)
+                means = means.clone()
+                means[rows] = x[rows, pick]
+            new_cb[:, ci] = means
+        new_cb, _ = torch.sort(new_cb, dim=1)
+        if prev is not None and (new_cb - prev).abs().max().item() < tol:
+            codebook = new_cb
+            break
+        prev = new_cb
+        codebook = new_cb
+
+    dist = (x[:, :, None] - codebook[:, None, :]).abs()
+    indices = dist.argmin(dim=-1).to(torch.uint8)  # (B, L)
+    return (
+        codebook.detach().cpu().numpy().astype(np.float32),
+        indices.detach().cpu().numpy().astype(np.uint8),
+    )
+
+
 def lloyd_max_columns_torch(
     block: np.ndarray,
     k: int,
@@ -117,6 +198,7 @@ def lloyd_max_columns_torch(
     gs, n = block.shape
     device = torch.device("cuda")
     x = torch.from_numpy(block.T.copy()).to(device)  # (n, gs)
+
     scales = x.abs().amax(dim=1)
     scales = torch.where(scales < 1e-12, torch.ones_like(scales), scales)
     norms = torch.linalg.vector_norm(x, dim=1)

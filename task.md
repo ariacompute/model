@@ -24,3 +24,7 @@
 - [x] `common/gen_compare.py`：text 短生成 / VLA action 前向（可 skip）
 - [x] `python -m common.audit_cli`；报告不 fail CI
 - [x] 单测 + README
+
+## T13 — group 路径 GPU Lloyd-Max
+- [x] `lloyd_max_batched_torch`；`codebook_share=group` 在 CUDA 可用时自动选用
+- [x] 无 CUDA 时 CPU numpy（workers 并行）；单测（torch CPU batched）

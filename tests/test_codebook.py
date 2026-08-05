@@ -35,6 +35,34 @@ class TestCodebook(unittest.TestCase):
         with self.assertRaises(QuantError):
             codebook.lloyd_max(np.array([]), k=2)
 
+    def test_lloyd_max_batched_torch_cpu(self):
+        try:
+            import torch  # noqa: F401
+        except ImportError:
+            self.skipTest("torch not installed")
+        rng = np.random.default_rng(0)
+        # Two groups with well-separated clusters.
+        batch = np.stack(
+            [
+                np.concatenate(
+                    [rng.normal(-2.0, 0.05, 64), rng.normal(2.0, 0.05, 64)]
+                ).astype(np.float32),
+                np.concatenate(
+                    [rng.normal(-1.0, 0.05, 64), rng.normal(1.0, 0.05, 64)]
+                ).astype(np.float32),
+            ],
+            axis=0,
+        )
+        cbs, idx = codebook.lloyd_max_batched_torch(
+            batch, k=2, max_iter=30, seed=0, device="cpu"
+        )
+        self.assertEqual(cbs.shape, (2, 2))
+        self.assertEqual(idx.shape, batch.shape)
+        # Reconstruct and check error is small vs data scale.
+        recon = cbs[np.arange(2)[:, None], idx]
+        err = float(np.sqrt(np.mean((batch - recon) ** 2)))
+        self.assertLess(err, 0.2)
+
 
 if __name__ == "__main__":
     unittest.main()

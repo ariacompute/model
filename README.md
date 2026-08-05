@@ -20,9 +20,9 @@ VL models quantize vision towers by default. Weights must be **safetensors** (GG
 uv venv .venv && source .venv/bin/activate   # or: python3 -m venv .venv
 uv pip install -r requirements.txt           # or: pip install -r requirements.txt
 # optional, for full HF model load path:
-# uv pip install torch transformers
-# optional CUDA speedup:
-# uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+uv pip install torch transformers
+# optional CUDA speedup (group + channel Lloyd-Max when torch.cuda.is_available()):
+uv pip install torch --index-url https://download.pytorch.org/whl/cu124
 
 export HF_TOKEN=...   # higher Hub rate limits (recommended for full downloads)
 ```
@@ -287,7 +287,9 @@ python -m unittest discover -s tests -t .
   **Hadamard rotation (`H @ W`, axis=0)** then **Lloyd-Max codebook quantization**.
   Large matrices use column-chunked FWHT (same math as one-shot `H @ W`), never skip rotation.
 - Default **`--codebook-share group`**: one codebook per row-group (shared across channels).
-  Use `--codebook-share channel` for higher fidelity (much larger `weight.bin`).
+  With CUDA + torch, group Lloyd-Max uses batched GPU (`lloyd_max_batched_torch`); otherwise
+  CPU numpy (+ `--workers`). Use `--codebook-share channel` for higher fidelity (larger `weight.bin`;
+  also GPU when available).
 - **`--bits 1.5`**: PLE / large embeddings default **1-bit**, compute layers **2–3 bit**,
   **parameter-weighted** average in ~1.35–1.55; Gemma-4-E2B target `weight.bin` **&lt; 1 GB**.
 - Only **2D** weights are codebook-quantized; 1D tensors (e.g. RMSNorm) are stored as raw fp16.

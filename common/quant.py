@@ -421,12 +421,62 @@ def quantize_weight(
 
     if codebook_share == "group":
         codebooks = np.zeros((num_groups, kc), dtype=np.float32)
-        for g in range(num_groups):
-            sl = slice(g * group_size, (g + 1) * group_size)
-            flat = W_work[sl, :].ravel()
-            cb_vec = cb.lloyd_max(flat, kc, max_iter=max_iter, seed=rng_seed + g * 10007)
-            codebooks[g, :] = cb_vec.astype(np.float32)
-            all_idx[g] = cb.quantize_group(flat, cb_vec).reshape(group_size, n)
+        length = group_size * n
+        # Batched GPU Lloyd-Max when CUDA is up and groups are large enough to amortize H2D.
+        use_cuda_group = (
+            runtime.cuda_available()
+            and length >= 256
+            and num_groups >= 1
+        )
+        if use_cuda_group:
+            # Cap batch by approx distance buffer B*L*K elements (~4 bytes).
+            max_batch = max(1, min(num_groups, (1 << 26) // max(length * kc, 1)))
+            for start in range(0, num_groups, max_batch):
+                end = min(num_groups, start + max_batch)
+                bsz = end - start
+                batch = np.empty((bsz, length), dtype=np.float32)
+                for i, g in enumerate(range(start, end)):
+                    sl = slice(g * group_size, (g + 1) * group_size)
+                    batch[i] = W_work[sl, :].ravel()
+                cbs, idx = cb.lloyd_max_batched_torch(
+                    batch,
+                    kc,
+                    max_iter=max_iter,
+                    seed=rng_seed + start * 10007,
+                    device="cuda",
+                )
+                if cbs.shape != (bsz, kc) or idx.shape != (bsz, length):
+                    raise QuantError(
+                        f"batched Lloyd-Max shape mismatch: codebook {cbs.shape} "
+                        f"indices {idx.shape} (expected B={bsz}, L={length}, K={kc})"
+                    )
+                codebooks[start:end] = cbs
+                all_idx[start:end] = idx.reshape(bsz, group_size, n)
+        else:
+            n_workers = workers if workers is not None else runtime.default_workers()
+            parallel = n_workers > 1 and num_groups > 2 and length >= 1024
+
+            def _one_group_cpu(g: int) -> tuple[int, np.ndarray, np.ndarray]:
+                sl = slice(g * group_size, (g + 1) * group_size)
+                flat = W_work[sl, :].ravel()
+                cb_vec = cb.lloyd_max(
+                    flat, kc, max_iter=max_iter, seed=rng_seed + g * 10007
+                )
+                idx = cb.quantize_group(flat, cb_vec).reshape(group_size, n)
+                return g, cb_vec.astype(np.float32), idx
+
+            if not parallel:
+                for g in range(num_groups):
+                    g_i, cbs, idx = _one_group_cpu(g)
+                    codebooks[g_i] = cbs
+                    all_idx[g_i] = idx
+            else:
+                from concurrent.futures import ThreadPoolExecutor
+
+                with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                    for g_i, cbs, idx in pool.map(_one_group_cpu, range(num_groups)):
+                        codebooks[g_i] = cbs
+                        all_idx[g_i] = idx
         del W_work
         return QuantTensor(
             bits=bits,

@@ -20,9 +20,9 @@ VL 默认量化 vision。权重须为 **safetensors**（不解析 GGUF）。
 uv venv .venv && source .venv/bin/activate   # 或: python3 -m venv .venv
 uv pip install -r requirements.txt           # 或: pip install -r requirements.txt
 # 完整 HF 路径可选：
-# uv pip install torch transformers
-# 可选 CUDA 加速：
-# uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+uv pip install torch transformers
+# 可选 CUDA 加速（group / channel 的 Lloyd-Max 在 torch.cuda.is_available() 时走 GPU）：
+uv pip install torch --index-url https://download.pytorch.org/whl/cu124
 
 export HF_TOKEN=...   # 提高 Hub 限流（全量下载建议设置）
 ```
@@ -284,7 +284,8 @@ python -m unittest discover -s tests -t .
 ## 说明
 
 - 流式 I/O 只降低峰值内存；**每张 2D 权重**仍完整执行 **Hadamard 旋转（`H @ W`，axis=0）** 与 **Lloyd-Max 码本量化**。大矩阵用按列分块 FWHT（与一次性 `H @ W` 数学等价），**不会跳过旋转**。
-- 默认 **`--codebook-share group`**：每个 row-group 共用一份码本。需要更高精度时用 `--codebook-share channel`（`weight.bin` 更大）。
+- 默认 **`--codebook-share group`**：每个 row-group 共用一份码本。已装 CUDA torch 时，group 路径自动用
+  `lloyd_max_batched_torch`；否则 CPU numpy（可用 `--workers`）。`--codebook-share channel` 精度更高、体积更大，亦可走 GPU。
 - **`--bits 1.5`**：PLE / 大 embedding 默认 **1 bit**，计算层 **2–3 bit**，按**参数量加权**平均约 1.35–1.55；Gemma-4-E2B 目标 `weight.bin` **&lt; 1 GB**。
 - 仅对 **2D** 权重做码本量化；1D（如 RMSNorm）以 raw fp16 旁路写入。
 - 产物目录（`./out/`、`**/weights/`、`*.bin`）已 gitignore，勿提交大文件。

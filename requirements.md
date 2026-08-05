@@ -63,7 +63,7 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 | 5 | 混合精度 | §3.4（`2.54`/`3.26` 层数；`1.5` 参数加权） |
 | 6 | Bundle | 流式 `BundleWriter`；VL 全量 2D（含 vision） |
 | 7 | 旁路 | 仅 ndim==2 码本；1D raw fp16/fp32 |
-| 8 | 主机 | `runtime.py`；`--workers`；可选 CUDA Lloyd |
+| 8 | 主机 | `runtime.py`；`--workers`；CUDA 时 `group` 用 `lloyd_max_batched_torch`，`channel` 用 `lloyd_max_columns_torch` |
 
 ### 2.1 非目标
 - QuaRot / SpinQuant；Embedding 专用标量路径；GPTQ / AWQ；剪枝 / 蒸馏
