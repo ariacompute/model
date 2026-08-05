@@ -1,8 +1,10 @@
 """Walsh–Hadamard rotation for weight preprocessing (FWHT, no full H matrix).
 
 Core guarantee: ``hadamard_rotate`` always applies an orthogonal row transform
-equivalent to ``W_rot = H @ W`` (axis=0). Large matrices are processed in
-column chunks so streaming quantization never skips the rotation.
+equivalent to ``W_rot = H @ S @ W`` (axis=0; ``S`` is optional random ``±1``).
+Inverse is ``hadamard_unrotate`` = ``S @ H``, not a second forward pass.
+Large matrices are processed in column chunks so streaming quantization never
+skips the rotation.
 """
 
 from __future__ import annotations
@@ -138,6 +140,81 @@ def hadamard_rotate(
         if signs is not None:
             work *= signs[:, None]
         fwht_inplace(work)
+        out[:, start:end] = work[:k, :]
+
+    meta["applied"] = True
+    return out, meta
+
+
+def hadamard_unrotate(
+    W_rot: np.ndarray,
+    axis: int = 0,
+    seed: int | None = None,
+) -> tuple[np.ndarray, dict]:
+    """Inverse of :func:`hadamard_rotate` along axis=0.
+
+    Forward is ``T = H @ S`` (row-scale by random ``±1``, then FWHT). Inverse is
+    ``T^{-1} = S @ H`` (FWHT, then the same row-scale) — **not** applying ``T``
+    twice. Zero-pad / crop mirrors the forward path; exact for power-of-two rows.
+    """
+    if W_rot.ndim != 2:
+        raise QuantError(f"hadamard_unrotate expects 2D weight, got shape {W_rot.shape}")
+    if axis != 0:
+        raise QuantError(
+            "core path requires axis=0; "
+            f"got axis={axis}"
+        )
+
+    W32 = np.asarray(W_rot, dtype=np.float32)
+    k, n = W32.shape
+    meta: dict = {
+        "seed": seed,
+        "row_dim": k,
+        "col_dim": n,
+        "row_pad": 0,
+        "col_pad": 0,
+        "axis": 0,
+        "applied": False,
+        "chunked": False,
+        "inverse": True,
+    }
+    if k < 1 or n < 1:
+        raise QuantError("empty weight")
+
+    target = next_pow2(k)
+    pad = target - k
+    meta["row_pad"] = pad
+
+    if target < 2:
+        meta["applied"] = True
+        meta["identity"] = True
+        return W32.copy(), meta
+
+    signs = None
+    if seed is not None:
+        rng = np.random.default_rng(seed)
+        signs = rng.choice(np.array([-1.0, 1.0], dtype=np.float32), size=target)
+
+    max_elems = runtime.max_work_elems()
+    if target > max_elems:
+        raise QuantError(
+            f"Hadamard row pad length {target} exceeds work budget {max_elems}; "
+            "increase ARIA_QUANT_MAX_ELEMS / host RAM"
+        )
+    chunk_w = max(1, int(max_elems // target))
+    chunk_w = min(chunk_w, n)
+    meta["chunked"] = chunk_w < n
+    meta["chunk_width"] = chunk_w
+
+    out = np.empty((k, n), dtype=np.float32)
+    for start in range(0, n, chunk_w):
+        end = min(n, start + chunk_w)
+        cols = end - start
+        work = np.zeros((target, cols), dtype=np.float32)
+        work[:k, :] = W32[:, start:end]
+        fwht_inplace(work)
+        if signs is not None:
+            work *= signs[:, None]
         out[:, start:end] = work[:k, :]
 
     meta["applied"] = True

@@ -46,6 +46,39 @@ class TestHadamard(unittest.TestCase):
         self.assertTrue(meta["applied"])
         self.assertTrue(np.allclose(got, expected, atol=1e-4, rtol=1e-4))
 
+    def test_signed_roundtrip_pow2(self):
+        """Forward T=H@S then unrotate S@H recovers W when rows are power-of-two."""
+        rng = np.random.default_rng(3)
+        W = rng.normal(size=(64, 17)).astype(np.float32)
+        Wr, meta = hadamard.hadamard_rotate(W, seed=11)
+        self.assertTrue(meta["applied"])
+        self.assertEqual(meta["row_pad"], 0)
+        back, meta_inv = hadamard.hadamard_unrotate(Wr, seed=11)
+        self.assertTrue(meta_inv.get("inverse"))
+        self.assertTrue(np.allclose(back, W, atol=1e-4, rtol=1e-4))
+
+    def test_signed_unrotate_not_second_forward(self):
+        rng = np.random.default_rng(4)
+        W = rng.normal(size=(32, 9)).astype(np.float32)
+        Wr, _ = hadamard.hadamard_rotate(W, seed=5)
+        wrong, _ = hadamard.hadamard_rotate(Wr, seed=5)
+        right, _ = hadamard.hadamard_unrotate(Wr, seed=5)
+        err_wrong = float(np.linalg.norm(wrong - W) / (np.linalg.norm(W) + 1e-12))
+        err_right = float(np.linalg.norm(right - W) / (np.linalg.norm(W) + 1e-12))
+        self.assertGreater(err_wrong, 0.5)
+        self.assertLess(err_right, 1e-3)
+
+    def test_quant_orig_rmse_after_unrotate(self):
+        from common import audit, quant
+
+        rng = np.random.default_rng(6)
+        W = rng.normal(size=(64, 32)).astype(np.float32)
+        t = quant.quantize_weight(W, bits=4, group_size=32, seed=0)
+        row = audit.audit_one_tensor("blk.0.attn_q.weight", t, W, seed=0)
+        self.assertLess(row["rel_rmse_rot"], 0.35)
+        self.assertLess(row["rel_rmse_orig"], 0.35)
+        self.assertTrue(row["pass"])
+
     def test_large_dim_chunked_still_applies(self):
         """Tight RAM budget must chunk columns, not skip Hadamard."""
         import os

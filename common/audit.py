@@ -118,8 +118,8 @@ def stratified_sample(names: list[str], k: int, seed: int = 0) -> list[str]:
 
 
 def inverse_hadamard(W_rot: np.ndarray, seed: int | None) -> np.ndarray:
-    """Hadamard is involutory under the same seed/signs — apply rotate again."""
-    out, meta = hadamard.hadamard_rotate(W_rot, axis=0, seed=seed)
+    """Undo :func:`hadamard.hadamard_rotate` (``S@H``, not a second forward pass)."""
+    out, meta = hadamard.hadamard_unrotate(W_rot, axis=0, seed=seed)
     if not meta.get("applied"):
         raise QuantError("inverse Hadamard failed to apply")
     return out
