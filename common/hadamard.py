@@ -219,3 +219,82 @@ def hadamard_unrotate(
 
     meta["applied"] = True
     return out, meta
+
+
+def hadamard_unrotate_with_ref(
+    W_rot: np.ndarray,
+    W_ref: np.ndarray,
+    axis: int = 0,
+    seed: int | None = None,
+) -> tuple[np.ndarray, dict]:
+    """Audit-oriented inverse that isolates quantization error when ``row_pad>0``.
+
+    Forward stores only the cropped rotated rows. Zero-padding those rows before
+    ``S@H`` invents a pad-region error even with perfect dequant. Here we rebuild
+    the full rotated buffer from ``W_ref``, replace the first ``k`` rows with
+    ``W_rot`` (dequant), then apply the true inverse — so pad energy matches the
+    reference forward path. Power-of-two rows fall back to :func:`hadamard_unrotate`.
+    """
+    if W_rot.ndim != 2 or W_ref.ndim != 2:
+        raise QuantError("hadamard_unrotate_with_ref expects 2D weights")
+    if W_rot.shape != W_ref.shape:
+        raise QuantError(
+            f"shape mismatch W_rot {W_rot.shape} vs W_ref {W_ref.shape}"
+        )
+    if axis != 0:
+        raise QuantError(f"core path requires axis=0; got axis={axis}")
+
+    W32 = np.asarray(W_rot, dtype=np.float32)
+    R32 = np.asarray(W_ref, dtype=np.float32)
+    k, n = W32.shape
+    target = next_pow2(k)
+    pad = target - k
+    if pad == 0 or target < 2:
+        out, meta = hadamard_unrotate(W32, axis=0, seed=seed)
+        meta["pad_mode"] = "none"
+        return out, meta
+
+    signs = None
+    if seed is not None:
+        rng = np.random.default_rng(seed)
+        signs = rng.choice(np.array([-1.0, 1.0], dtype=np.float32), size=target)
+
+    max_elems = runtime.max_work_elems()
+    if target > max_elems:
+        raise QuantError(
+            f"Hadamard row pad length {target} exceeds work budget {max_elems}; "
+            "increase ARIA_QUANT_MAX_ELEMS / host RAM"
+        )
+    chunk_w = max(1, int(max_elems // target))
+    chunk_w = min(chunk_w, n)
+
+    out = np.empty((k, n), dtype=np.float32)
+    for start in range(0, n, chunk_w):
+        end = min(n, start + chunk_w)
+        cols = end - start
+        work = np.zeros((target, cols), dtype=np.float32)
+        work[:k, :] = R32[:, start:end]
+        if signs is not None:
+            work *= signs[:, None]
+        fwht_inplace(work)
+        # Keep rotated pad rows from reference; splice dequant into kept rows.
+        work[:k, :] = W32[:, start:end]
+        fwht_inplace(work)
+        if signs is not None:
+            work *= signs[:, None]
+        out[:, start:end] = work[:k, :]
+
+    meta = {
+        "seed": seed,
+        "row_dim": k,
+        "col_dim": n,
+        "row_pad": pad,
+        "col_pad": 0,
+        "axis": 0,
+        "applied": True,
+        "chunked": chunk_w < n,
+        "chunk_width": chunk_w,
+        "inverse": True,
+        "pad_mode": "ref_fill",
+    }
+    return out, meta

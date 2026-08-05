@@ -78,6 +78,32 @@ class TestHadamard(unittest.TestCase):
         self.assertLess(row["rel_rmse_rot"], 0.35)
         self.assertLess(row["rel_rmse_orig"], 0.35)
         self.assertTrue(row["pass"])
+        self.assertEqual(row["row_pad"], 0)
+        self.assertEqual(row["pad_mode"], "none")
+
+    def test_non_pow2_ref_fill_matches_rot_error(self):
+        """Pad-aware audit inverse isolates quant error (no zeropad leak)."""
+        from common import audit, quant
+
+        rng = np.random.default_rng(7)
+        W = rng.normal(size=(48, 16)).astype(np.float32)  # pad 16 → 64
+        t = quant.quantize_weight(W, bits=4, group_size=16, seed=0)
+        row = audit.audit_one_tensor("blk.0.ffn_up.weight", t, W, seed=0)
+        self.assertGreater(row["row_pad"], 0)
+        self.assertEqual(row["pad_mode"], "ref_fill")
+        # Orthogonality is on the padded domain; cropped orig can be ≤ rot.
+        self.assertLessEqual(row["rel_rmse_orig"], row["rel_rmse_rot"] + 1e-5)
+        self.assertLess(abs(row["rel_rmse_orig"] - row["rel_rmse_rot"]), 0.05)
+        self.assertTrue(row["pass"])
+        self.assertGreater(row["rel_rmse_orig_zeropad"], row["rel_rmse_orig"] + 0.05)
+
+    def test_perfect_dequant_ref_fill_recovers(self):
+        rng = np.random.default_rng(8)
+        W = rng.normal(size=(10, 4)).astype(np.float32)
+        Wr, _ = hadamard.hadamard_rotate(W, seed=2)
+        back, meta = hadamard.hadamard_unrotate_with_ref(Wr, W, seed=2)
+        self.assertEqual(meta["pad_mode"], "ref_fill")
+        self.assertTrue(np.allclose(back, W, atol=1e-4, rtol=1e-4))
 
     def test_large_dim_chunked_still_applies(self):
         """Tight RAM budget must chunk columns, not skip Hadamard."""

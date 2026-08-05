@@ -323,7 +323,7 @@ python -m common.audit_cli gen \
   --report ./out/openvla-7b_q4/audit_gen.json
 ```
 
-报告阈值（原域 `rel_rmse_orig`）：q8 ≤ 0.15，q4 ≤ 0.35，其它/混合 ≤ 0.50（embed/PLE ≤ 0.80）；仅写入每层 `pass` 字段。
+报告阈值（pad-aware 原域 `rel_rmse_orig`）：q8 ≤ 0.15，q4 ≤ 0.35，其它/混合 ≤ 0.50（embed/PLE ≤ 0.80）。非 2 幂另报 `rel_rmse_orig_zeropad` 与更宽的 `threshold_orig_zeropad`；`pass` 仅看 ref_fill 原域。
 
 ## 测试
 

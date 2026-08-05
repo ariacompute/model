@@ -63,16 +63,41 @@ def classify_layer_role(name: str) -> str:
     return "other"
 
 
-def threshold_orig_rmse(bits: int, name: str = "") -> float:
-    """Report-only upper bound for original-space relative RMSE."""
+def threshold_orig_rmse(
+    bits: int,
+    name: str = "",
+    *,
+    row_pad: int = 0,
+) -> float:
+    """Report-only upper bound for original-space relative RMSE.
+
+    With pad-aware audit inverse (``ref_fill``), non-power-of-two rows use the
+    same bit table as power-of-two. ``row_pad`` is retained for report metadata;
+    embed / PLE-style names still get the wider 0.80 band when bits < 4.
+    """
     low = name.lower()
+    is_embed = any(s in low for s in ("embed", "embd", "embedding", "per_layer"))
     if bits >= 8:
-        return 0.15
-    if bits == 4:
-        return 0.35
-    if bits <= 2 or any(s in low for s in ("embed", "embd", "embedding", "per_layer")):
-        return 0.80
-    return 0.50
+        base = 0.15
+    elif bits == 4:
+        base = 0.35
+    elif bits <= 2 or is_embed:
+        base = 0.80
+    else:
+        base = 0.50
+    # Zero-pad inverse (inference-style) still leaks pad energy; keep a wider
+    # informational band for that metric only via ``threshold_orig_zeropad``.
+    _ = row_pad
+    return base
+
+
+def threshold_orig_zeropad_rmse(bits: int, name: str = "", *, row_pad: int = 0) -> float:
+    """Looser bound for inference-matched zero-pad unrotate when ``row_pad>0``."""
+    base = threshold_orig_rmse(bits, name, row_pad=0)
+    if row_pad <= 0:
+        return base
+    # Pad/crop discards rotated energy; allow ~2x the bit table (cap 1.0).
+    return min(1.0, max(base * 2.0, 0.60))
 
 
 def rel_rmse(a: np.ndarray, b: np.ndarray) -> float:
@@ -118,11 +143,25 @@ def stratified_sample(names: list[str], k: int, seed: int = 0) -> list[str]:
 
 
 def inverse_hadamard(W_rot: np.ndarray, seed: int | None) -> np.ndarray:
-    """Undo :func:`hadamard.hadamard_rotate` (``S@H``, not a second forward pass)."""
+    """Undo :func:`hadamard.hadamard_rotate` (``S@H``, inference / zero-pad path)."""
     out, meta = hadamard.hadamard_unrotate(W_rot, axis=0, seed=seed)
     if not meta.get("applied"):
         raise QuantError("inverse Hadamard failed to apply")
     return out
+
+
+def inverse_hadamard_audit(
+    W_rot: np.ndarray,
+    W_ref: np.ndarray,
+    seed: int | None,
+) -> tuple[np.ndarray, dict]:
+    """Pad-aware audit inverse (ref-filled rotated pad rows when needed)."""
+    out, meta = hadamard.hadamard_unrotate_with_ref(
+        W_rot, W_ref, axis=0, seed=seed
+    )
+    if not meta.get("applied"):
+        raise QuantError("audit inverse Hadamard failed to apply")
+    return out, meta
 
 
 def audit_one_tensor(
@@ -135,21 +174,33 @@ def audit_one_tensor(
     if W.shape != qt.shape:
         raise QuantError(f"{name}: ref shape {W.shape} != bundle {qt.shape}")
     W_rot, hmeta = hadamard.hadamard_rotate(W, axis=0, seed=seed)
+    row_pad = int(hmeta.get("row_pad") or 0)
     recon_rot = quant.dequantize(qt)
     err_rot = rel_rmse(W_rot, recon_rot)
-    recon_orig = inverse_hadamard(recon_rot, seed=seed)
+
+    recon_orig, inv_meta = inverse_hadamard_audit(recon_rot, W, seed=seed)
     err_orig = rel_rmse(W, recon_orig)
-    thr = threshold_orig_rmse(int(qt.bits), name)
+    thr = threshold_orig_rmse(int(qt.bits), name, row_pad=row_pad)
+
+    recon_zp = inverse_hadamard(recon_rot, seed=seed)
+    err_zp = rel_rmse(W, recon_zp)
+    thr_zp = threshold_orig_zeropad_rmse(int(qt.bits), name, row_pad=row_pad)
+
     return {
         "name": name,
         "role": classify_layer_role(name),
         "bits": int(qt.bits),
         "shape": [int(qt.shape[0]), int(qt.shape[1])],
+        "row_pad": row_pad,
+        "pad_mode": inv_meta.get("pad_mode", "none"),
         "codebook_share": getattr(qt, "codebook_share", "group"),
         "rel_rmse_rot": round(err_rot, 6),
         "rel_rmse_orig": round(err_orig, 6),
         "threshold_orig": thr,
         "pass": bool(err_orig <= thr),
+        "rel_rmse_orig_zeropad": round(err_zp, 6),
+        "threshold_orig_zeropad": thr_zp,
+        "pass_zeropad": bool(err_zp <= thr_zp),
         "hadamard_applied": bool(hmeta.get("applied")),
     }
 

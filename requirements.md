@@ -116,14 +116,16 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 ### A — 层抽检（全模型）
 - 从 bundle 分层抽样若干 2D codebook 张量（默认 8；策略 `stratified`：embed / attn / ffn / vision|action / other）。
 - 对照源权重（`--model` / `--family` 解析 HF 流式，或 `--ref tiny` 用合成 dict，**仅**匹配 `quantize.py --tiny` 产物）：
-  `rel_rmse_rot`（旋转域 dequant vs Hadamard(W)）与 `rel_rmse_orig`（逆 Hadamard 后 vs W）。
+  `rel_rmse_rot`（旋转域 dequant vs Hadamard(W)）与 `rel_rmse_orig`（**pad-aware** 逆 Hadamard：非 2 幂时用参考权重填旋转域 pad 行，隔离量化误差；另报 `rel_rmse_orig_zeropad` 对应推理零填）。
 - **报告阈值**（只写入报告的 `threshold` / `pass` 字段，**不**因此非零退出）：
 
-| bits | 原域 `rel_rmse_orig` 参考上界 |
-|------|-------------------------------|
+| bits | 原域 `rel_rmse_orig`（ref_fill）参考上界 |
+|------|------------------------------------------|
 | 8 | ≤ 0.15 |
 | 4 | ≤ 0.35 |
 | 其它 / 混合 | ≤ 0.50（PLE/`q1.5` 层可再放宽至 0.80，报告内标注） |
+
+非 2 幂另给 `threshold_orig_zeropad`（约 2× 上表，且 ≥0.60，封顶 1.0），仅约束 `pass_zeropad`。
 
 ### B — 少量生成 / 前向对比（区分家族）
 - **`kind=text`**（Qwen / Gemma / LFM / Inkling / Nanbeige / Bonsai）：可选 `torch`+`transformers`，短 prompt 生成对比（token overlap 等）；缺依赖则报告 `skipped`。

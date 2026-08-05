@@ -323,7 +323,7 @@ python -m common.audit_cli gen \
   --report ./out/openvla-7b_q4/audit_gen.json
 ```
 
-Report thresholds (orig-space `rel_rmse_orig`): q8 ≤ 0.15, q4 ≤ 0.35, other/mixed ≤ 0.50 (embed/PLE ≤ 0.80). Stored as `pass` per layer only.
+Report thresholds (pad-aware orig `rel_rmse_orig`): q8 ≤ 0.15, q4 ≤ 0.35, other/mixed ≤ 0.50 (embed/PLE ≤ 0.80). Non-pow2 rows also report `rel_rmse_orig_zeropad` with a wider `threshold_orig_zeropad`. `pass` uses ref-fill orig only.
 
 ## Tests
 

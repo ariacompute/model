@@ -29,6 +29,12 @@ class TestAudit(unittest.TestCase):
         self.assertEqual(audit.threshold_orig_rmse(4), 0.35)
         self.assertEqual(audit.threshold_orig_rmse(2, "blk.0.ffn_up.weight"), 0.80)
         self.assertEqual(audit.threshold_orig_rmse(3, "blk.0.ffn_up.weight"), 0.50)
+        self.assertEqual(
+            audit.threshold_orig_zeropad_rmse(4, "mlp.up_proj", row_pad=1024), 0.70
+        )
+        self.assertEqual(
+            audit.threshold_orig_zeropad_rmse(4, "attn_q", row_pad=0), 0.35
+        )
 
     def test_resolve_family_base_model(self):
         self.assertEqual(audit.resolve_family_base_model("qwen3-0.6b"), "Qwen/Qwen3-0.6B")
