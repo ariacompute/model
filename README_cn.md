@@ -31,7 +31,17 @@ export HF_TOKEN=...   # 提高 Hub 限流（全量下载建议设置）
 
 ### 推荐主机（参考配置）
 
-完整模型量化参考环境：**1× NVIDIA H100**、**16 vCPU**、**200 GiB 内存**（`gpu-h100-sxm`）。
+完整模型量化可用下列任一配置（显存决定 GPU 批大小）：
+
+| | **H200** | **RTX PRO 6000** |
+|--|----------|------------------|
+| CPU | **16 vCPU** | **24 vCPU** |
+| 主机内存 | **200 GiB** | **218 GiB** |
+| GPU | **1× NVIDIA H200 NVLink** | **1× NVIDIA RTX PRO 6000** |
+| 显存 | **141 GiB** | **96 GiB** |
+| 建议 `--workers` | 16 | 24 |
+
+已安装 CUDA 版 torch 时，`codebook_share=group` 使用按显存自适应批大小的 GPU Lloyd-Max；无 GPU 时回退 CPU（`--workers`，默认 `min(32, cpu_count)`）。
 
 ## 通用 CLI 参数
 
@@ -92,7 +102,7 @@ python lfm/lfm2-350m/quantize.py --tiny --bits 4 --out ./out/lfm2-350m_tiny_q4
 ## 全量模型命令（int4 + int8）
 
 下列命令使用各目录 `config.yaml` 中的默认 `base_model`（可用 `--model` 覆盖）。
-大机器可加 `--workers 16`。
+大机器可加 `--workers 16`（H200）或 `--workers 24`（RTX PRO 6000）。
 
 ### Qwen
 

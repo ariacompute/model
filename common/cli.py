@@ -26,7 +26,7 @@ def build_parser(default_bits: float = 4) -> argparse.ArgumentParser:
         "--workers",
         type=int,
         default=None,
-        help="CPU group workers (default: min(32, cpu_count); H100 box ~16)",
+        help="CPU group workers (default: min(32, cpu_count); H200~16 / RTX PRO 6000~24)",
     )
     p.add_argument(
         "--codebook-share",

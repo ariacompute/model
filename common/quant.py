@@ -429,8 +429,11 @@ def quantize_weight(
             and num_groups >= 1
         )
         if use_cuda_group:
-            # Cap batch by approx distance buffer B*L*K elements (~4 bytes).
-            max_batch = max(1, min(num_groups, (1 << 26) // max(length * kc, 1)))
+            # Cap batch by GPU VRAM-aware distance buffer B*L*K (float32 elems).
+            max_batch = max(
+                1,
+                min(num_groups, runtime.cuda_batch_elem_budget() // max(length * kc, 1)),
+            )
             for start in range(0, num_groups, max_batch):
                 end = min(num_groups, start + max_batch)
                 bsz = end - start

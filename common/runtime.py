@@ -1,4 +1,4 @@
-"""Host resource helpers for large-machine quantization (e.g. H100 + 200 GiB)."""
+"""Host resource helpers for large-machine quantization (e.g. H200 / RTX PRO 6000)."""
 
 from __future__ import annotations
 
@@ -56,9 +56,55 @@ def cuda_available() -> bool:
         return False
 
 
+@lru_cache(maxsize=1)
+def cuda_mem_bytes() -> int:
+    """Total CUDA device 0 memory in bytes, or 0 if unavailable."""
+    if not cuda_available():
+        return 0
+    try:
+        import torch
+
+        return int(torch.cuda.get_device_properties(0).total_memory)
+    except Exception:
+        return 0
+
+
+@lru_cache(maxsize=1)
+def cuda_batch_elem_budget() -> int:
+    """Max float32 elements for one GPU Lloyd distance buffer (B×L×K).
+
+    Uses ``ARIA_QUANT_CUDA_BATCH_ELEMS`` if set; else ~1/16 of device VRAM
+    (floored at 64 Mi elems, capped), suited to large GPUs such as H200 141 GiB
+    or RTX PRO 6000 96 GiB.
+    """
+    env = os.environ.get("ARIA_QUANT_CUDA_BATCH_ELEMS")
+    if env:
+        return max(1, int(env))
+    mem = cuda_mem_bytes()
+    if mem <= 0:
+        return 1 << 26
+    # float32 → /4; use ~1/16 of VRAM for the dominant dist tensor.
+    budget = int(mem / 16 / 4)
+    return max(64 * (1 << 20), min(budget, 1 << 30))
+
+
 def runtime_summary() -> str:
     ram_gib = total_ram_bytes() / (1 << 30)
-    return (
-        f"ram={ram_gib:.1f}GiB workers={default_workers()} "
-        f"max_work_elems={max_work_elems()} cuda={cuda_available()}"
-    )
+    parts = [
+        f"ram={ram_gib:.1f}GiB",
+        f"workers={default_workers()}",
+        f"max_work_elems={max_work_elems()}",
+        f"cuda={cuda_available()}",
+    ]
+    if cuda_available():
+        try:
+            import torch
+
+            name = torch.cuda.get_device_name(0).replace(" ", "_")
+            vram_gib = cuda_mem_bytes() / (1 << 30)
+            parts.append(f"gpu={name}")
+            parts.append(f"vram={vram_gib:.0f}GiB")
+            parts.append(f"cuda_batch_elems={cuda_batch_elem_budget()}")
+        except Exception:
+            pass
+    return " ".join(parts)

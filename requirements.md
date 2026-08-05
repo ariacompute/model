@@ -63,7 +63,7 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 | 5 | 混合精度 | §3.4（`2.54`/`3.26` 层数；`1.5` 参数加权） |
 | 6 | Bundle | 流式 `BundleWriter`；VL 全量 2D（含 vision） |
 | 7 | 旁路 | 仅 ndim==2 码本；1D raw fp16/fp32 |
-| 8 | 主机 | `runtime.py`；`--workers`；CUDA 时 `group` 用 `lloyd_max_batched_torch`，`channel` 用 `lloyd_max_columns_torch` |
+| 8 | 主机 | 参考：**H200**（16 vCPU / 200 GiB / 141 GiB）或 **RTX PRO 6000**（24 vCPU / 218 GiB / 96 GiB）；`runtime.py` 按 RAM/VRAM 定预算；CUDA 时 `group`→`lloyd_max_batched_torch`，`channel`→`lloyd_max_columns_torch` |
 
 ### 2.1 非目标
 - QuaRot / SpinQuant；Embedding 专用标量路径；GPTQ / AWQ；剪枝 / 蒸馏

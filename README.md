@@ -29,9 +29,19 @@ export HF_TOKEN=...   # higher Hub rate limits (recommended for full downloads)
 
 Core quant path needs **numpy** (+ **pyyaml** for `config.yaml`). Real HF downloads also need **safetensors** and **huggingface_hub**.
 
-### Recommended host (reference)
+### Recommended hosts (reference)
 
-Validated target for full-model runs: **1× NVIDIA H100**, **16 vCPUs**, **200 GiB RAM** (`gpu-h100-sxm`).
+Validated targets for full-model runs (either box is fine; VRAM drives GPU batch size):
+
+| | **H200** | **RTX PRO 6000** |
+|--|----------|------------------|
+| CPU | **16 vCPUs** | **24 vCPUs** |
+| Host RAM | **200 GiB** | **218 GiB** |
+| GPU | **1× NVIDIA H200 NVLink** | **1× NVIDIA RTX PRO 6000** |
+| GPU memory | **141 GiB** | **96 GiB** |
+| Suggested `--workers` | 16 | 24 |
+
+With CUDA torch installed, `codebook_share=group` uses batched GPU Lloyd-Max sized from device VRAM; CPU fallback uses `--workers` (default `min(32, cpu_count)`).
 
 ## CLI flags
 
@@ -92,7 +102,7 @@ python lfm/lfm2-350m/quantize.py --tiny --bits 4 --out ./out/lfm2-350m_tiny_q4
 ## Full-model commands (int4 + int8)
 
 All commands download from the default `base_model` in each `config.yaml` unless `--model` is set.
-Add `--workers 16` on large hosts as needed.
+Add `--workers 16` (H200) or `--workers 24` (RTX PRO 6000) on large hosts as needed.
 
 ### Qwen
 
