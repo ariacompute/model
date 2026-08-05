@@ -227,6 +227,10 @@ python lfm/lfm2.5-1.2b-instruct/quantize.py --bits 8 --out ./out/lfm2.5-1.2b-ins
 python lfm/lfm2.5-1.2b-thinking/quantize.py --bits 4 --out ./out/lfm2.5-1.2b-thinking_q4
 python lfm/lfm2.5-1.2b-thinking/quantize.py --bits 8 --out ./out/lfm2.5-1.2b-thinking_q8
 
+# lfm2.5-2.6b
+python lfm/lfm2.5-2.6b/quantize.py --bits 4 --out ./out/lfm2.5-2.6b_q4
+python lfm/lfm2.5-2.6b/quantize.py --bits 8 --out ./out/lfm2.5-2.6b_q8
+
 # lfm2.5-vl-1.6b (vision included)
 python lfm/lfm2.5-vl-1.6b/quantize.py --bits 4 --out ./out/lfm2.5-vl-1.6b_q4
 python lfm/lfm2.5-vl-1.6b/quantize.py --bits 8 --out ./out/lfm2.5-vl-1.6b_q8
