@@ -132,7 +132,7 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 Legacy `format_version<2`（全局 pad-crop）仍可报 `rel_rmse_orig_zeropad` / `ref_fill` 辅助字段；**新产物以 blocked 原域 `pass` 为准**。
 
 ### B — 少量生成 / 前向对比（区分家族）
-- **`kind=text`**（Qwen / Gemma / LFM / Inkling / Nanbeige / Bonsai）：可选 `torch`+`transformers`，短 prompt 生成对比（token overlap 等）；缺依赖则报告 `skipped`。
+- **`kind=text`**（Qwen / Gemma / LFM / Inkling / Nanbeige / Bonsai）：可选 `torch`+`transformers`；默认 **completion-style** 短 prompt；`min_new_tokens`（默认 8）/`max_new_tokens` greedy 生成；报告 **new-token** 级 `token_overlap`、`exact_prefix_frac`、以及对 baseline 续写的 teacher-forced `mean_logprob_delta`；缺依赖则 `skipped`。
 - **`kind=vla`**（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：不做文本生成；对少量 dummy 输入做 **action / 末层输出** 对比（余弦或 L2）；缺依赖或无法加载则 `skipped`。
 - 同样：**只出报告，不 fail CI**。
 

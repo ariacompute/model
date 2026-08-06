@@ -55,12 +55,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pg.add_argument("--family", default=None)
     pg.add_argument("--max-new-tokens", type=int, default=32)
+    pg.add_argument(
+        "--min-new-tokens",
+        type=int,
+        default=8,
+        help="minimum new tokens for greedy generate (text kind; default 8)",
+    )
     pg.add_argument("--device", default="cpu")
     pg.add_argument(
         "--prompt",
         action="append",
         default=None,
-        help="text prompt (repeatable); text kind only",
+        help="text prompt (repeatable); text kind only; default=completion-style prompts",
     )
     pg.add_argument(
         "--report",
@@ -91,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
                 family=args.family,
                 prompts=args.prompt,
                 max_new_tokens=args.max_new_tokens,
+                min_new_tokens=args.min_new_tokens,
                 device=args.device,
             )
             out = Path(args.report or Path(args.bundle) / "audit_gen.json")
@@ -114,11 +121,20 @@ def _summary(report: dict) -> dict:
             "fail_count": report.get("fail_count"),
             "ci_fail": report.get("ci_fail"),
         }
-    return {
+    summary = {
         "kind": report.get("kind"),
         "status": report.get("status"),
         "ci_fail": report.get("ci_fail"),
     }
+    for key in (
+        "mean_token_overlap",
+        "mean_exact_prefix_frac",
+        "mean_logprob_delta",
+        "injected_tensors",
+    ):
+        if key in report:
+            summary[key] = report[key]
+    return summary
 
 
 if __name__ == "__main__":

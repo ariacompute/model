@@ -99,6 +99,31 @@ class TestAudit(unittest.TestCase):
             self.assertFalse(report.get("ci_fail", True))
             self.assertIn(report.get("status"), ("skipped", "ok"))
 
+    def test_exact_prefix_match_helpers(self):
+        m = gen_compare.exact_prefix_match([1, 2, 3, 4], [1, 2, 9, 4])
+        self.assertEqual(m["exact_prefix_len"], 2)
+        self.assertAlmostEqual(m["exact_prefix_frac"], 0.5)
+        self.assertFalse(m["exact_match"])
+        full = gen_compare.exact_prefix_match([7, 8], [7, 8])
+        self.assertTrue(full["exact_match"])
+        self.assertEqual(full["exact_prefix_frac"], 1.0)
+        empty = gen_compare.exact_prefix_match([], [1])
+        self.assertEqual(empty["exact_prefix_len"], 0)
+        self.assertFalse(empty["exact_match"])
+
+    def test_default_prompts_are_completion_style(self):
+        self.assertGreaterEqual(len(gen_compare.DEFAULT_TEXT_PROMPTS), 2)
+        for p in gen_compare.DEFAULT_TEXT_PROMPTS:
+            self.assertNotIn("how are you", p.lower())
+
+    def test_min_max_token_validation(self):
+        with self.assertRaises(ConfigError):
+            gen_compare.run_text_gen_compare(
+                ".",
+                "x",
+                max_new_tokens=4,
+                min_new_tokens=8,
+            )
 
 if __name__ == "__main__":
     unittest.main()

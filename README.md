@@ -308,10 +308,12 @@ python -m common.audit_cli layer \
 # or explicitly: --model Qwen/Qwen3.5-2B
 
 # B) Text short generation compare (Qwen / Gemma / LFM / Inkling / …)
+# defaults: completion-style prompts, --min-new-tokens 8; reports exact_prefix + logprob delta
 python -m common.audit_cli gen \
   --bundle ./out/qwen3.5-2b_q4 \
   --model Qwen/Qwen3.5-2B \
   --kind text \
+  --min-new-tokens 8 \
   --max-new-tokens 32 \
   --report ./out/qwen3.5-2b_q4/audit_gen.json
 

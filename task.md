@@ -21,7 +21,7 @@
 
 ## T12 — 质量审计 A+B
 - [x] `common/audit.py`：分层抽检 + rot/orig RMSE + 阈值字段
-- [x] `common/gen_compare.py`：text 短生成 / VLA action 前向（可 skip）
+- [x] `common/gen_compare.py`：completion prompt + min/max tokens；prefix / logprob 指标；VLA 可 skip
 - [x] `python -m common.audit_cli`；报告不 fail CI
 - [x] 单测 + README
 
