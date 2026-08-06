@@ -74,7 +74,10 @@ def run_text_gen_compare(
             "mode": "gen",
             "kind": audit.TEXT_KIND,
             "status": "skipped",
-            "reason": f"torch/transformers unavailable: {err}",
+            "reason": (
+                f"torch/transformers unavailable: {err}; "
+                "install with: uv pip install torch transformers"
+            ),
             "ci_fail": False,
         }
 
@@ -164,7 +167,10 @@ def run_vla_forward_compare(
             "mode": "gen",
             "kind": audit.VLA_KIND,
             "status": "skipped",
-            "reason": f"torch/transformers unavailable: {err}",
+            "reason": (
+                f"torch/transformers unavailable: {err}; "
+                "install with: uv pip install torch transformers"
+            ),
             "ci_fail": False,
         }
 

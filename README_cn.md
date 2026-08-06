@@ -19,8 +19,8 @@ VL 默认量化 vision。权重须为 **safetensors**（不解析 GGUF）。
 # 在仓库根目录
 uv venv .venv && source .venv/bin/activate   # 或: python3 -m venv .venv
 uv pip install -r requirements.txt           # 或: pip install -r requirements.txt
-# 可选 HF 辅助（仅 CPU torch 也可装 transformers）：
-# uv pip install transformers
+# 可选 HF 辅助（audit gen 需要 torch + transformers；layer 审计不需要）：
+uv pip install torch transformers
 
 export HF_TOKEN=...   # 提高 Hub 限流（全量下载建议设置）
 ```

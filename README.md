@@ -19,8 +19,8 @@ VL models quantize vision towers by default. Weights must be **safetensors** (GG
 # from repo root
 uv venv .venv && source .venv/bin/activate   # or: python3 -m venv .venv
 uv pip install -r requirements.txt           # or: pip install -r requirements.txt
-# optional HF extras (CPU torch is enough for transformers helpers):
-# uv pip install transformers
+# optional HF extras (CPU torch is enough for helpers / audit gen):
+uv pip install torch transformers
 
 export HF_TOKEN=...   # higher Hub rate limits (recommended for full downloads)
 ```
