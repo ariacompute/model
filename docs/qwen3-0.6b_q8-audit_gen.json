@@ -1,0 +1,59 @@
+{
+  "mode": "gen",
+  "kind": "text",
+  "status": "ok",
+  "bundle": "/home/ubuntu/model/out/qwen3-0.6b_q8",
+  "model": "Qwen/Qwen3-0.6B",
+  "injected_tensors": 198,
+  "min_new_tokens": 8,
+  "max_new_tokens": 32,
+  "mean_token_overlap": 0.6429,
+  "mean_exact_prefix_frac": 0.3854,
+  "mean_logprob_delta": 0.00685,
+  "ci_fail": false,
+  "note": "report-only; does not fail CI. Metrics on new tokens only: token_overlap, exact_prefix_*, teacher-forced mean_logprob_* on baseline continuation.",
+  "samples": [
+    {
+      "prompt": "The capital of France is",
+      "baseline": " Paris. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of China is Beijing. The capital of Japan is Tokyo. The capital",
+      "quantized": " Paris, and the capital of Italy is Rome. The capital of Spain is Madrid. The capital of China is Beijing. The capital of Japan is Tokyo. The",
+      "n_new_tokens_baseline": 32,
+      "n_new_tokens_quantized": 32,
+      "token_overlap": 0.75,
+      "exact_prefix_len": 1,
+      "exact_prefix_frac": 0.0312,
+      "exact_match": false,
+      "mean_logprob_baseline": -0.354068,
+      "mean_logprob_quant_on_baseline": -0.357349,
+      "mean_logprob_delta": -0.003281
+    },
+    {
+      "prompt": "2 + 2 =",
+      "baseline": " 4, so the sum is 4.\n\nBut wait, the problem says \"the sum of the numbers\" which might be interpreted as the sum of all",
+      "quantized": " 4, so 4 is the answer.\n\n**Final Answer**\nThe value of the expression is \\boxed{4}.\n**Final Answer**\n\\boxed{",
+      "n_new_tokens_baseline": 32,
+      "n_new_tokens_quantized": 32,
+      "token_overlap": 0.1786,
+      "exact_prefix_len": 4,
+      "exact_prefix_frac": 0.125,
+      "exact_match": false,
+      "mean_logprob_baseline": -0.902711,
+      "mean_logprob_quant_on_baseline": -0.94023,
+      "mean_logprob_delta": -0.037518
+    },
+    {
+      "prompt": "Complete: The sky is",
+      "baseline": " clear, and the sun is shining. The sun is shining brightly, and the sky is clear. The sun is shining brightly, and the sky is clear.",
+      "quantized": " clear, and the sun is shining. The sun is shining brightly, and the sky is clear. The sun is shining brightly, and the sky is clear.",
+      "n_new_tokens_baseline": 32,
+      "n_new_tokens_quantized": 32,
+      "token_overlap": 1.0,
+      "exact_prefix_len": 32,
+      "exact_prefix_frac": 1.0,
+      "exact_match": true,
+      "mean_logprob_baseline": -0.814216,
+      "mean_logprob_quant_on_baseline": -0.752868,
+      "mean_logprob_delta": 0.061348
+    }
+  ]
+}

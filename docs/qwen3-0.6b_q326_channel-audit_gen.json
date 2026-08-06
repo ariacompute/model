@@ -1,0 +1,58 @@
+{
+  "mode": "gen",
+  "kind": "text",
+  "status": "ok",
+  "bundle": "/home/ubuntu/model/out/qwen3-0.6b_q326_channel",
+  "model": "Qwen/Qwen3-0.6B",
+  "injected_tensors": 198,
+  "min_new_tokens": 8,
+  "max_new_tokens": 32,
+  "mean_token_overlap": 0.5244,
+  "mean_exact_prefix_frac": 0.3854,
+  "mean_logprob_delta": -0.059476,
+  "ci_fail": false,
+  "note": "report-only; does not fail CI. Metrics on new tokens only: token_overlap, exact_prefix_*, teacher-forced mean_logprob_* on baseline continuation.",
+  "samples": [
+    {
+      "prompt": "The capital of France is",
+      "baseline": " Paris. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of China is Beijing. The capital of Japan is Tokyo. The capital",
+      "quantized": " Paris. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of China is Beijing. The capital of Japan is Tokyo. The capital",
+      "n_new_tokens_baseline": 32,
+      "n_new_tokens_quantized": 32,
+      "token_overlap": 1.0,
+      "exact_prefix_len": 32,
+      "exact_prefix_frac": 1.0,
+      "exact_match": true,
+      "mean_logprob_baseline": -0.354068,
+      "mean_logprob_quant_on_baseline": -0.34452,
+      "mean_logprob_delta": 0.009548
+    },
+    {
+      "prompt": "2 + 2 =",
+      "baseline": " 4, so the sum is 4.\n\nBut wait, the problem says \"the sum of the numbers\" which might be interpreted as the sum of all",
+      "quantized": " 4, so the first two numbers are 2 and 4, and the next two are 4 and 2. This is a pattern of ",
+      "n_new_tokens_baseline": 32,
+      "n_new_tokens_quantized": 32,
+      "token_overlap": 0.1613,
+      "exact_prefix_len": 5,
+      "exact_prefix_frac": 0.1562,
+      "exact_match": false,
+      "mean_logprob_baseline": -0.902711,
+      "mean_logprob_quant_on_baseline": -1.026899,
+      "mean_logprob_delta": -0.124188
+    },
+    {
+      "prompt": "Complete: The sky is",
+      "baseline": " clear, and the sun is shining. The sun is shining brightly, and the sky is clear. The sun is shining brightly, and the sky is clear.",
+      "quantized": " blue, and the sun is shining. The moon is shining. The stars are shining. The clouds are passing. The sun is shining. The moon is shining",
+      "n_new_tokens_baseline": 32,
+      "n_new_tokens_quantized": 32,
+      "token_overlap": 0.4118,
+      "exact_prefix_len": 0,
+      "exact_prefix_frac": 0.0,
+      "exact_match": false,
+      "mean_logprob_baseline": -0.814216,
+      "mean_logprob_quant_on_baseline": -0.878005,
+      "mean_logprob_delta": -0.063788
+    }
+  ]

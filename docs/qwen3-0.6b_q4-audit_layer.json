@@ -1,0 +1,222 @@
+{
+  "mode": "layer",
+  "kind": "text",
+  "bundle": "/home/ubuntu/model/out/qwen3-0.6b_q4",
+  "model": "Qwen/Qwen3-0.6B",
+  "ref": "hf",
+  "quantization": "q4",
+  "sample": 8,
+  "fail_count": 0,
+  "ci_fail": false,
+  "note": "thresholds are report-only; exit code stays 0 for CI",
+  "layers": [
+    {
+      "name": "model.embed_tokens.weight",
+      "role": "embed",
+      "bits": 4,
+      "shape": [
+        151936,
+        1024
+      ],
+      "row_pad": 0,
+      "hadamard_mode": "blocked",
+      "blocks": [
+        {
+          "start": 0,
+          "size": 131072
+        },
+        {
+          "start": 131072,
+          "size": 16384
+        },
+        {
+          "start": 147456,
+          "size": 4096
+        },
+        {
+          "start": 151552,
+          "size": 256
+        },
+        {
+          "start": 151808,
+          "size": 128
+        }
+      ],
+      "codebook_share": "group",
+      "rel_rmse_rot": 0.105083,
+      "rel_rmse_orig": 0.105083,
+      "threshold_orig": 0.35,
+      "pass": true,
+      "hadamard_applied": true
+    },
+    {
+      "name": "model.layers.5.self_attn.q_proj.weight",
+      "role": "attn",
+      "bits": 4,
+      "shape": [
+        2048,
+        1024
+      ],
+      "row_pad": 0,
+      "hadamard_mode": "blocked",
+      "blocks": [
+        {
+          "start": 0,
+          "size": 2048
+        }
+      ],
+      "codebook_share": "group",
+      "rel_rmse_rot": 0.098954,
+      "rel_rmse_orig": 0.098954,
+      "threshold_orig": 0.35,
+      "pass": true,
+      "hadamard_applied": true
+    },
+    {
+      "name": "model.layers.24.mlp.down_proj.weight",
+      "role": "ffn",
+      "bits": 4,
+      "shape": [
+        1024,
+        3072
+      ],
+      "row_pad": 0,
+      "hadamard_mode": "blocked",
+      "blocks": [
+        {
+          "start": 0,
+          "size": 1024
+        }
+      ],
+      "codebook_share": "group",
+      "rel_rmse_rot": 0.099231,
+      "rel_rmse_orig": 0.099231,
+      "threshold_orig": 0.35,
+      "pass": true,
+      "hadamard_applied": true
+    },
+    {
+      "name": "model.layers.26.self_attn.q_proj.weight",
+      "role": "attn",
+      "bits": 4,
+      "shape": [
+        2048,
+        1024
+      ],
+      "row_pad": 0,
+      "hadamard_mode": "blocked",
+      "blocks": [
+        {
+          "start": 0,
+          "size": 2048
+        }
+      ],
+      "codebook_share": "group",
+      "rel_rmse_rot": 0.101549,
+      "rel_rmse_orig": 0.101549,
+      "threshold_orig": 0.35,
+      "pass": true,
+      "hadamard_applied": true
+    },
+    {
+      "name": "model.layers.11.mlp.up_proj.weight",
+      "role": "ffn",
+      "bits": 4,
+      "shape": [
+        3072,
+        1024
+      ],
+      "row_pad": 0,
+      "hadamard_mode": "blocked",
+      "blocks": [
+        {
+          "start": 0,
+          "size": 2048
+        },
+        {
+          "start": 2048,
+          "size": 1024
+        }
+      ],
+      "codebook_share": "group",
+      "rel_rmse_rot": 0.098781,
+      "rel_rmse_orig": 0.098781,
+      "threshold_orig": 0.35,
+      "pass": true,
+      "hadamard_applied": true
+    },
+    {
+      "name": "model.layers.16.self_attn.k_proj.weight",
+      "role": "attn",
+      "bits": 4,
+      "shape": [
+        1024,
+        1024
+      ],
+      "row_pad": 0,
+      "hadamard_mode": "blocked",
+      "blocks": [
+        {
+          "start": 0,
+          "size": 1024
+        }
+      ],
+      "codebook_share": "group",
+      "rel_rmse_rot": 0.099953,
+      "rel_rmse_orig": 0.099953,
+      "threshold_orig": 0.35,
+      "pass": true,
+      "hadamard_applied": true
+    },
+    {
+      "name": "model.layers.23.mlp.gate_proj.weight",
+      "role": "ffn",
+      "bits": 4,
+      "shape": [
+        3072,
+        1024
+      ],
+      "row_pad": 0,
+      "hadamard_mode": "blocked",
+      "blocks": [
+        {
+          "start": 0,
+          "size": 2048
+        },
+        {
+          "start": 2048,
+          "size": 1024
+        }
+      ],
+      "codebook_share": "group",
+      "rel_rmse_rot": 0.097597,
+      "rel_rmse_orig": 0.097597,
+      "threshold_orig": 0.35,
+      "pass": true,
+      "hadamard_applied": true
+    },
+    {
+      "name": "model.layers.20.self_attn.v_proj.weight",
+      "role": "attn",
+      "bits": 4,
+      "shape": [
+        1024,
+        1024
+      ],
+      "row_pad": 0,
+      "hadamard_mode": "blocked",
+      "blocks": [
+        {
+          "start": 0,
+          "size": 1024
+        }
+      ],
+      "codebook_share": "group",
+      "rel_rmse_rot": 0.107758,
+      "rel_rmse_orig": 0.107758,
+      "threshold_orig": 0.35,
+      "pass": true,
+      "hadamard_applied": true
+    }
+  ]
+}

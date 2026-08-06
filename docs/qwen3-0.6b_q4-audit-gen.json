@@ -1,0 +1,59 @@
+{
+  "mode": "gen",
+  "kind": "text",
+  "status": "ok",
+  "bundle": "/home/ubuntu/model/out/qwen3-0.6b_q4",
+  "model": "Qwen/Qwen3-0.6B",
+  "injected_tensors": 198,
+  "min_new_tokens": 8,
+  "max_new_tokens": 32,
+  "mean_token_overlap": 0.1878,
+  "mean_exact_prefix_frac": 0.0729,
+  "mean_logprob_delta": -0.172159,
+  "ci_fail": false,
+  "note": "report-only; does not fail CI. Metrics on new tokens only: token_overlap, exact_prefix_*, teacher-forced mean_logprob_* on baseline continuation.",
+  "samples": [
+    {
+      "prompt": "The capital of France is",
+      "baseline": " Paris. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of China is Beijing. The capital of Japan is Tokyo. The capital",
+      "quantized": " Paris. The capital of France is also the capital of the country, and the country is the capital of the country. The country is the capital of the country",
+      "n_new_tokens_baseline": 32,
+      "n_new_tokens_quantized": 32,
+      "token_overlap": 0.25,
+      "exact_prefix_len": 5,
+      "exact_prefix_frac": 0.1562,
+      "exact_match": false,
+      "mean_logprob_baseline": -0.354068,
+      "mean_logprob_quant_on_baseline": -0.524468,
+      "mean_logprob_delta": -0.1704
+    },
+    {
+      "prompt": "2 + 2 =",
+      "baseline": " 4, so the sum is 4.\n\nBut wait, the problem says \"the sum of the numbers\" which might be interpreted as the sum of all",
+      "quantized": " 4. 4 + 2 = 6. 6 + 2 = 8. 8 + 2 = 10. ",
+      "n_new_tokens_baseline": 32,
+      "n_new_tokens_quantized": 32,
+      "token_overlap": 0.0357,
+      "exact_prefix_len": 2,
+      "exact_prefix_frac": 0.0625,
+      "exact_match": false,
+      "mean_logprob_baseline": -0.902711,
+      "mean_logprob_quant_on_baseline": -1.178581,
+      "mean_logprob_delta": -0.27587
+    },
+    {
+      "prompt": "Complete: The sky is",
+      "baseline": " clear, and the sun is shining. The sun is shining brightly, and the sky is clear. The sun is shining brightly, and the sky is clear.",
+      "quantized": " a dark, almost black, and the clouds are dark, and the clouds are dark, and the clouds are dark. The sky is a dark, dark,",
+      "n_new_tokens_baseline": 32,
+      "n_new_tokens_quantized": 32,
+      "token_overlap": 0.2778,
+      "exact_prefix_len": 0,
+      "exact_prefix_frac": 0.0,
+      "exact_match": false,
+      "mean_logprob_baseline": -0.814216,
+      "mean_logprob_quant_on_baseline": -0.884424,
+      "mean_logprob_delta": -0.070208
+    }
+  ]
+}

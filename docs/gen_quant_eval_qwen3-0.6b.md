@@ -1,125 +1,124 @@
 # Gen quant eval archive — Qwen3-0.6B
 
-归档日期：2026-08-06。  
-对象：`Qwen/Qwen3-0.6B` Aria bundles（`format_version=2`，blocked Hadamard）。  
-目的：对比若干量化配方的 **短生成一致性**，并记录「新异构方案」为何不采纳。
+Subject: `Qwen/Qwen3-0.6B` Aria bundles (`format_version=2`, blocked Hadamard).  
+Goal: compare short-generation consistency across quant recipes, and record why the proposed **heterogeneous** profile was not adopted.
 
-本地 JSON 报告（勿提交 Git）：`audit_layer.json`、`audit-gen.json`、
-`qwen3-0.6b_q4_channel-audit_gen.json`、`qwen3-0.6b_q326_channel-audit_gen.json`、
-`qwen3-0.6b_q8-audit_gen.json`。
+Local JSON reports (do not commit): `qwen3-0.6b_q4-audit_layer.json`, `qwen3-0.6b_q4-audit-gen.json`,
+`qwen3-0.6b_q4_channel-audit_gen.json`, `qwen3-0.6b_q326_channel-audit_gen.json`,
+`qwen3-0.6b_q8-audit_gen.json`.
 
 ---
 
-## 1. 评测方法
+## 1. Method
 
-入口：`python -m common.audit_cli gen`（见 `common/gen_compare.py`）。
+Entry point: `python -m common.audit_cli gen` (see `common/gen_compare.py`).
 
-| 项 | 设置 |
-|----|------|
+| Item | Setting |
+|------|---------|
 | Model | `Qwen/Qwen3-0.6B` |
 | Kind | `text` |
-| Prompts（默认 completion 风格） | `The capital of France is` / `2 + 2 =` / `Complete: The sky is` |
-| Generate | greedy，`min_new_tokens=8`，`max_new_tokens=32` |
-| 权重注入 | `reconstruct_weight` → HF `state_dict`（约 198 张量） |
-| 指标 | **new tokens only**：`token_overlap`、`exact_prefix_*`、teacher-forced `mean_logprob_*` on **baseline** continuation |
-| CI | `ci_fail: false`（仅报告） |
+| Prompts (default completion-style) | `The capital of France is` / `2 + 2 =` / `Complete: The sky is` |
+| Generate | greedy, `min_new_tokens=8`, `max_new_tokens=32` |
+| Weight inject | `reconstruct_weight` → HF `state_dict` (~198 tensors) |
+| Metrics | **new tokens only**: `token_overlap`, `exact_prefix_*`, teacher-forced `mean_logprob_*` on the **baseline** continuation |
+| CI | `ci_fail: false` (report-only) |
 
-层抽检（对照）：`audit_cli layer --ref hf`，q4+group 采样 8 层，`rel_rmse_orig≈0.10`，`fail_count=0`。
-
----
-
-## 2. 方案定义
-
-| 代号 | CLI | 说明 |
-|------|-----|------|
-| **A — q4+group**（基线） | `--bits 4`（默认 `--codebook-share group`） | 全层 4-bit，group 码本 |
-| **B — q4+channel** | `--bits 4 --codebook-share channel` | 全层 4-bit，channel 码本 |
-| **C — q326+channel** | `--bits 3.26 --codebook-share channel` | 敏感层优先 4、其余约 3；**全层** channel |
-| **D — q8+group** | `--bits 8` | 全层 8-bit，group 码本（似然/位宽天花板对照） |
-| **E — 新异构（未实现）** | 提议：其余 `4+group`，敏感 compute `8+channel` | 按层 bits + 按层 share；**不采纳**（见 §5） |
-
-产物命名约定：`./out/<slug>_<quant>`，其中 C 使用 `_q326_channel`（见 README）。
+Layer audit (context): `audit_cli layer --ref hf`, q4+group, sample 8 layers, `rel_rmse_orig≈0.10`, `fail_count=0`.
 
 ---
 
-## 3. Gen 总表（三 prompt 均值）
+## 2. Recipes
 
-| 方案 | `mean_token_overlap` | `mean_exact_prefix_frac` | `mean_logprob_delta` |
-|------|---------------------:|-------------------------:|---------------------:|
+| ID | CLI | Notes |
+|----|-----|-------|
+| **A — q4+group** (baseline) | `--bits 4` (default `--codebook-share group`) | All layers 4-bit, group codebooks |
+| **B — q4+channel** | `--bits 4 --codebook-share channel` | All layers 4-bit, channel codebooks |
+| **C — q326+channel** | `--bits 3.26 --codebook-share channel` | Sensitive layers preferentially 4-bit, others ~3-bit; **global** channel |
+| **D — q8+group** | `--bits 8` | All layers 8-bit, group codebooks (likelihood / bit-width ceiling) |
+| **E — hetero (not implemented)** | Proposed: rest `4+group`, sensitive compute `8+channel` | Per-tensor bits + share; **rejected** (see §5) |
+
+Output naming: `./out/<slug>_<quant>`; recipe C uses `_q326_channel` (see README).
+
+---
+
+## 3. Gen summary (mean over 3 prompts)
+
+| Recipe | `mean_token_overlap` | `mean_exact_prefix_frac` | `mean_logprob_delta` |
+|--------|---------------------:|-------------------------:|---------------------:|
 | A q4+group | 0.1878 | 0.0729 | −0.172159 |
 | B q4+channel | 0.2886 | 0.0312 | **+0.046007** |
 | **C q326+channel** | **0.5244** | **0.3854** | −0.059476 |
 | D q8+group | **0.6429** | **0.3854** | **+0.00685** |
 
-要点：
+Takeaways:
 
-- **前缀一致性**：A/B 很弱；**C 与 D 均值并列最高（0.385）**。
-- **似然贴合（Δlogprob）**：D ≈ 0 最好；B 亦为正；A 最差。
-- **仅开 channel（B）**：抬高 overlap / 似然，但 **压低** greedy 前缀 → 不能单靠全层 channel 抬 gen 前缀。
+- **Prefix match:** A/B are weak; **C and D tie for best mean (0.385)**.
+- **Likelihood fit (Δlogprob):** D ≈ 0 is best; B is also positive; A is worst.
+- **Channel-only (B):** improves overlap / likelihood but **hurts** greedy prefix → full-layer channel alone does not raise gen prefix.
 
 ---
 
-## 4. 分样本摘要
+## 4. Per-prompt notes
 
 ### 4.1 The capital of France is
 
-| 方案 | prefix_len / frac | exact | Δlogprob | 备注 |
-|------|------------------:|:-----:|---------:|------|
-| A | 5 / 0.156 | no | −0.170 | 对齐到 “ Paris.” 后复读 |
-| B | 1 / 0.031 | no | +0.007 | 标点分叉；似然已对齐 |
-| **C** | **32 / 1.0** | **yes** | +0.010 | 与 FP **逐 token 一致** |
-| D | 1 / 0.031 | no | −0.003 | 全 q8 仍可能在 “ Paris” 后分叉 |
+| Recipe | prefix_len / frac | exact | Δlogprob | Notes |
+|--------|------------------:|:-----:|---------:|-------|
+| A | 5 / 0.156 | no | −0.170 | Matches through “ Paris.” then loops |
+| B | 1 / 0.031 | no | +0.007 | Punctuation fork; likelihood already aligned |
+| **C** | **32 / 1.0** | **yes** | +0.010 | **Token-identical** to FP |
+| D | 1 / 0.031 | no | −0.003 | Full q8 can still fork after “ Paris” |
 
 ### 4.2 2 + 2 =
 
-| 方案 | prefix_len / frac | Δlogprob | 备注 |
-|------|------------------:|---------:|------|
-| A | 2 / 0.063 | −0.276 | 先到 “ 4”，后加法链 |
-| B | 2 / 0.063 | +0.035 | 解题模板风格 |
-| C | **5 / 0.156** | −0.124 | 最长前缀 |
-| D | 4 / 0.125 | −0.038 | 略逊于 C |
+| Recipe | prefix_len / frac | Δlogprob | Notes |
+|--------|------------------:|---------:|-------|
+| A | 2 / 0.063 | −0.276 | Hits “ 4”, then additive chain |
+| B | 2 / 0.063 | +0.035 | Solution-template style |
+| C | **5 / 0.156** | −0.124 | Longest prefix |
+| D | 4 / 0.125 | −0.038 | Slightly behind C |
 
 ### 4.3 Complete: The sky is
 
-| 方案 | prefix_len / frac | exact | Δlogprob | 备注 |
-|------|------------------:|:-----:|---------:|------|
+| Recipe | prefix_len / frac | exact | Δlogprob | Notes |
+|--------|------------------:|:-----:|---------:|-------|
 | A | 0 | no | −0.070 | clear vs dark |
-| B | 0 | no | +0.096 | clear vs blue；似然最好之一 |
-| C | 0 | no | −0.064 | 仍零前缀 |
-| **D** | **32 / 1.0** | **yes** | +0.061 | 开放补全被全 q8 救回 |
+| B | 0 | no | +0.096 | clear vs blue; strong likelihood |
+| C | 0 | no | −0.064 | Still zero prefix |
+| **D** | **32 / 1.0** | **yes** | +0.061 | Open completion recovered by full q8 |
 
-均值相同的 C/D：C 赢在 France exact；D 赢在 sky exact；算术两者接近。
-
----
-
-## 5. 新异构方案（E）vs C — 为何不采纳
-
-提议 E：**非敏感 `4+group` + 敏感 compute（attn/lm_head）`8+channel`**（按层 share；embed 不进敏感）。
-
-| 维度 | C q326+channel（已实测） | E 新异构（推断） |
-|------|--------------------------|------------------|
-| 最高 bit | 4 | 8（仅敏感） |
-| 最低 bit | ~3 | 4 |
-| Channel | **全层** | **仅敏感** |
-| Gen 前缀 | 已与全 q8 **同级均值** | **难再数量级提升**；方差仍由单条 prompt 主导 |
-| 工程 | 现成 CLI | 需改 Spec（混合出 8）+ 分配器 |
-| 主要价值叙事 | 生成质量配方 | 体积/结构权衡，非稳压 C |
-
-**结论：** 以「抬 gen」为第一目标时，**采用 C（文档化为全家族推荐）**；不实现 E。若将来要省全层 channel 体积，再单独开 Spec。
+Same mean for C/D: C wins France exact; D wins sky exact; arithmetic is close.
 
 ---
 
-## 6. 决策与文档落点
+## 5. Heterogeneous recipe (E) vs C — why not adopted
 
-| 决策 | 内容 |
-|------|------|
-| 推荐配方 | `--bits 3.26 --codebook-share channel` → `./out/<slug>_q326_channel` |
-| 基线对照 | 保留 q4 / q8；channel-only q4 仅作消融 |
-| README | 全家族已补充 `_q326_channel` 命令（`README.md` / `README_cn.md`） |
-| serve | 目录仍为 int4/int8 两槽；**不**因本评测改 harness（serve 无 AGENTS/requirements/task） |
-| engine | 已支持按张量 `bits` / `codebook_share`；本评测无引擎改动 |
+Proposed E: **non-sensitive `4+group` + sensitive compute (attn / lm_head) `8+channel`** (per-tensor share; keep embed out of the sensitive set).
 
-复现示例：
+| Dimension | C q326+channel (measured) | E hetero (inferred) |
+|-----------|---------------------------|---------------------|
+| Max bits | 4 | 8 (sensitive only) |
+| Min bits | ~3 | 4 |
+| Channel | **all layers** | **sensitive only** |
+| Gen prefix | Already **ties** full-q8 mean | **Unlikely another order-of-magnitude gain**; variance still prompt-dominated |
+| Engineering | Existing CLI | Spec change (mixed may emit 8) + allocator |
+| Product story | Generation-quality recipe | Size / structure tradeoff, not a guaranteed win over C |
+
+**Decision:** With “raise gen quality” as the primary goal, **ship C** (documented as the recommended recipe for all families); do **not** implement E. Revisit E only if saving full-layer channel size becomes a separate Spec.
+
+---
+
+## 6. Decisions and doc surface
+
+| Decision | Detail |
+|----------|--------|
+| Recommended recipe | `--bits 3.26 --codebook-share channel` → `./out/<slug>_q326_channel` |
+| Baselines | Keep q4 / q8; channel-only q4 is ablation only |
+| README | All families list `_q326_channel` commands (`README.md` / `README_cn.md`) |
+| serve | Catalog remains int4/int8 slots; **no** harness change from this eval (serve has no AGENTS/requirements/task) |
+| engine | Already supports per-tensor `bits` / `codebook_share`; no engine change for this eval |
+
+Reproduce:
 
 ```bash
 python qwen/qwen3-0.6b/quantize.py \
@@ -135,9 +134,9 @@ python -m common.audit_cli gen \
 
 ---
 
-## 7. 局限
+## 7. Limitations
 
-- 仅 **3 条短 prompt × 32 new tokens**；均值对单条（France / sky）极敏感。
-- Baseline 自身存在复读；不完全是量化独有问题。
-- 仅 Qwen3-0.6B；其它家族需按 README 命令各自复测。
-- Layer RMSE 有界 **≠** greedy 前缀高；以 `exact_prefix_frac` + `mean_logprob_delta` 为准看 gen。
+- Only **3 short prompts × 32 new tokens**; means are highly sensitive to single rows (France / sky).
+- The FP baseline itself can loop; not all failure modes are quant-only.
+- Qwen3-0.6B only; re-run other families via README commands as needed.
+- Bounded layer RMSE **≠** high greedy prefix; judge gen with `exact_prefix_frac` + `mean_logprob_delta`.
