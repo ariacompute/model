@@ -11,6 +11,7 @@ Output is an Aria-style bundle: `weight.bin` + `config.json` (+ tokenizer). Spec
 [`requirements.md`](requirements.md). Agent index: [`AGENTS.md`](AGENTS.md).
 
 **int4** = `--bits 4` (codebook K=16). **int8** = `--bits 8` (codebook K=256, Hadamard+Lloyd-Max only).
+**q326+channel** = `--bits 3.26 --codebook-share channel` (recommended generation-quality recipe; out suffix `_q326_channel`).
 VL models quantize vision towers by default. Weights must be **safetensors** (GGUF not parsed).
 
 ## Setup
@@ -105,9 +106,9 @@ Always pass `--out`. Use a single root `./out/` and this name pattern:
 | Part | Rule | Examples |
 |------|------|----------|
 | `<model-slug>` | Same as the family folder name | `gemma-4-e2b-it`, `qwen3.5-2b`, `lfm2.5-1.2b-instruct` |
-| `<quant>` | Bit label with `.` removed | `q4`, `q8`, `q15`, `q254`, `q326` |
+| `<quant>` | Bit label with `.` removed; keep `_channel` suffix | `q4`, `q8`, `q15`, `q254`, `q326`, `q326_channel` |
 
-Examples: `./out/gemma-4-e2b-it_q4`, `./out/qwen3.5-2b_q8`, `./out/gemma-4-e2b-it_q15`.
+Examples: `./out/gemma-4-e2b-it_q4`, `./out/qwen3.5-2b_q8`, `./out/qwen3-0.6b_q326_channel`.
 
 Bundle layout:
 
@@ -135,10 +136,12 @@ python qwen/qwen3.5-2b/quantize.py --tiny --bits 4 --out ./out/qwen3.5-2b_tiny_q
 python lfm/lfm2-350m/quantize.py --tiny --bits 4 --out ./out/lfm2-350m_tiny_q4
 ```
 
-## Full-model commands (int4 + int8)
+## Full-model commands (int4 + int8 + q326_channel)
 
 All commands download from the default `base_model` in each `config.yaml` unless `--model` is set.
 Add `--workers 16` (H200) or `--workers 24` (RTX PRO 6000) on large hosts as needed.
+
+**Recommended (generation quality):** `--bits 3.26 --codebook-share channel` (sensitive layers preferentially 4-bit, others ~3-bit, per-channel codebooks). On Qwen3-0.6B, gen prefix match is near full q8 at typically lower size. Output suffix: `_q326_channel`.
 
 ### Qwen
 
@@ -146,18 +149,22 @@ Add `--workers 16` (H200) or `--workers 24` (RTX PRO 6000) on large hosts as nee
 # qwen3-0.6b
 python qwen/qwen3-0.6b/quantize.py --bits 4 --out ./out/qwen3-0.6b_q4
 python qwen/qwen3-0.6b/quantize.py --bits 8 --out ./out/qwen3-0.6b_q8
+python qwen/qwen3-0.6b/quantize.py --bits 3.26 --codebook-share channel --out ./out/qwen3-0.6b_q326_channel
 
 # qwen3-1.7b
 python qwen/qwen3-1.7b/quantize.py --bits 4 --out ./out/qwen3-1.7b_q4
 python qwen/qwen3-1.7b/quantize.py --bits 8 --out ./out/qwen3-1.7b_q8
+python qwen/qwen3-1.7b/quantize.py --bits 3.26 --codebook-share channel --out ./out/qwen3-1.7b_q326_channel
 
 # qwen3.5-0.8b
 python qwen/qwen3.5-0.8b/quantize.py --bits 4 --out ./out/qwen3.5-0.8b_q4
 python qwen/qwen3.5-0.8b/quantize.py --bits 8 --out ./out/qwen3.5-0.8b_q8
+python qwen/qwen3.5-0.8b/quantize.py --bits 3.26 --codebook-share channel --out ./out/qwen3.5-0.8b_q326_channel
 
 # qwen3.5-2b
 python qwen/qwen3.5-2b/quantize.py --bits 4 --out ./out/qwen3.5-2b_q4
 python qwen/qwen3.5-2b/quantize.py --bits 8 --out ./out/qwen3.5-2b_q8
+python qwen/qwen3.5-2b/quantize.py --bits 3.26 --codebook-share channel --out ./out/qwen3.5-2b_q326_channel
 ```
 
 ### Gemma
@@ -166,26 +173,32 @@ python qwen/qwen3.5-2b/quantize.py --bits 8 --out ./out/qwen3.5-2b_q8
 # gemma-3-270m-it
 python gemma/gemma-3-270m-it/quantize.py --bits 4 --out ./out/gemma-3-270m-it_q4
 python gemma/gemma-3-270m-it/quantize.py --bits 8 --out ./out/gemma-3-270m-it_q8
+python gemma/gemma-3-270m-it/quantize.py --bits 3.26 --codebook-share channel --out ./out/gemma-3-270m-it_q326_channel
 
 # gemma-3-1b-it
 python gemma/gemma-3-1b-it/quantize.py --bits 4 --out ./out/gemma-3-1b-it_q4
 python gemma/gemma-3-1b-it/quantize.py --bits 8 --out ./out/gemma-3-1b-it_q8
+python gemma/gemma-3-1b-it/quantize.py --bits 3.26 --codebook-share channel --out ./out/gemma-3-1b-it_q326_channel
 
 # gemma-3n-e2b-it
 python gemma/gemma-3n-e2b-it/quantize.py --bits 4 --out ./out/gemma-3n-e2b-it_q4
 python gemma/gemma-3n-e2b-it/quantize.py --bits 8 --out ./out/gemma-3n-e2b-it_q8
+python gemma/gemma-3n-e2b-it/quantize.py --bits 3.26 --codebook-share channel --out ./out/gemma-3n-e2b-it_q326_channel
 
 # gemma-3n-e4b-it
 python gemma/gemma-3n-e4b-it/quantize.py --bits 4 --out ./out/gemma-3n-e4b-it_q4
 python gemma/gemma-3n-e4b-it/quantize.py --bits 8 --out ./out/gemma-3n-e4b-it_q8
+python gemma/gemma-3n-e4b-it/quantize.py --bits 3.26 --codebook-share channel --out ./out/gemma-3n-e4b-it_q326_channel
 
 # gemma-4-e2b-it
 python gemma/gemma-4-e2b-it/quantize.py --bits 4 --out ./out/gemma-4-e2b-it_q4
 python gemma/gemma-4-e2b-it/quantize.py --bits 8 --out ./out/gemma-4-e2b-it_q8
+python gemma/gemma-4-e2b-it/quantize.py --bits 3.26 --codebook-share channel --out ./out/gemma-4-e2b-it_q326_channel
 
 # gemma-4-e4b-it
 python gemma/gemma-4-e4b-it/quantize.py --bits 4 --out ./out/gemma-4-e4b-it_q4
 python gemma/gemma-4-e4b-it/quantize.py --bits 8 --out ./out/gemma-4-e4b-it_q8
+python gemma/gemma-4-e4b-it/quantize.py --bits 3.26 --codebook-share channel --out ./out/gemma-4-e4b-it_q326_channel
 ```
 
 ### LFM
@@ -194,46 +207,57 @@ python gemma/gemma-4-e4b-it/quantize.py --bits 8 --out ./out/gemma-4-e4b-it_q8
 # lfm2-350m
 python lfm/lfm2-350m/quantize.py --bits 4 --out ./out/lfm2-350m_q4
 python lfm/lfm2-350m/quantize.py --bits 8 --out ./out/lfm2-350m_q8
+python lfm/lfm2-350m/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2-350m_q326_channel
 
 # lfm2-700m
 python lfm/lfm2-700m/quantize.py --bits 4 --out ./out/lfm2-700m_q4
 python lfm/lfm2-700m/quantize.py --bits 8 --out ./out/lfm2-700m_q8
+python lfm/lfm2-700m/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2-700m_q326_channel
 
 # lfm2-1.2b
 python lfm/lfm2-1.2b/quantize.py --bits 4 --out ./out/lfm2-1.2b_q4
 python lfm/lfm2-1.2b/quantize.py --bits 8 --out ./out/lfm2-1.2b_q8
+python lfm/lfm2-1.2b/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2-1.2b_q326_channel
 
 # lfm2-2.6b
 python lfm/lfm2-2.6b/quantize.py --bits 4 --out ./out/lfm2-2.6b_q4
 python lfm/lfm2-2.6b/quantize.py --bits 8 --out ./out/lfm2-2.6b_q8
+python lfm/lfm2-2.6b/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2-2.6b_q326_channel
 
 # lfm2-8b-a1b
 python lfm/lfm2-8b-a1b/quantize.py --bits 4 --out ./out/lfm2-8b-a1b_q4
 python lfm/lfm2-8b-a1b/quantize.py --bits 8 --out ./out/lfm2-8b-a1b_q8
+python lfm/lfm2-8b-a1b/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2-8b-a1b_q326_channel
 
 # lfm2-vl-450m (vision included)
 python lfm/lfm2-vl-450m/quantize.py --bits 4 --out ./out/lfm2-vl-450m_q4
 python lfm/lfm2-vl-450m/quantize.py --bits 8 --out ./out/lfm2-vl-450m_q8
+python lfm/lfm2-vl-450m/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2-vl-450m_q326_channel
 
 # lfm2.5-350m
 python lfm/lfm2.5-350m/quantize.py --bits 4 --out ./out/lfm2.5-350m_q4
 python lfm/lfm2.5-350m/quantize.py --bits 8 --out ./out/lfm2.5-350m_q8
+python lfm/lfm2.5-350m/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2.5-350m_q326_channel
 
 # lfm2.5-1.2b-instruct
 python lfm/lfm2.5-1.2b-instruct/quantize.py --bits 4 --out ./out/lfm2.5-1.2b-instruct_q4
 python lfm/lfm2.5-1.2b-instruct/quantize.py --bits 8 --out ./out/lfm2.5-1.2b-instruct_q8
+python lfm/lfm2.5-1.2b-instruct/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2.5-1.2b-instruct_q326_channel
 
 # lfm2.5-1.2b-thinking
 python lfm/lfm2.5-1.2b-thinking/quantize.py --bits 4 --out ./out/lfm2.5-1.2b-thinking_q4
 python lfm/lfm2.5-1.2b-thinking/quantize.py --bits 8 --out ./out/lfm2.5-1.2b-thinking_q8
+python lfm/lfm2.5-1.2b-thinking/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2.5-1.2b-thinking_q326_channel
 
 # lfm2.5-2.6b
 python lfm/lfm2.5-2.6b/quantize.py --bits 4 --out ./out/lfm2.5-2.6b_q4
 python lfm/lfm2.5-2.6b/quantize.py --bits 8 --out ./out/lfm2.5-2.6b_q8
+python lfm/lfm2.5-2.6b/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2.5-2.6b_q326_channel
 
 # lfm2.5-vl-1.6b (vision included)
 python lfm/lfm2.5-vl-1.6b/quantize.py --bits 4 --out ./out/lfm2.5-vl-1.6b_q4
 python lfm/lfm2.5-vl-1.6b/quantize.py --bits 8 --out ./out/lfm2.5-vl-1.6b_q8
+python lfm/lfm2.5-vl-1.6b/quantize.py --bits 3.26 --codebook-share channel --out ./out/lfm2.5-vl-1.6b_q326_channel
 ```
 
 ### Nanbeige / Bonsai / Inkling
@@ -242,14 +266,17 @@ python lfm/lfm2.5-vl-1.6b/quantize.py --bits 8 --out ./out/lfm2.5-vl-1.6b_q8
 # nanbeige4.2-3b
 python nanbeige/nanbeige4.2-3b/quantize.py --bits 4 --out ./out/nanbeige4.2-3b_q4
 python nanbeige/nanbeige4.2-3b/quantize.py --bits 8 --out ./out/nanbeige4.2-3b_q8
+python nanbeige/nanbeige4.2-3b/quantize.py --bits 3.26 --codebook-share channel --out ./out/nanbeige4.2-3b_q326_channel
 
 # bonsai-27b (BF16 safetensors ~54GB source; large output)
 python bonsai/bonsai-27b/quantize.py --bits 4 --workers 16 --out ./out/bonsai-27b_q4
 python bonsai/bonsai-27b/quantize.py --bits 8 --workers 16 --out ./out/bonsai-27b_q8
+python bonsai/bonsai-27b/quantize.py --bits 3.26 --codebook-share channel --workers 16 --out ./out/bonsai-27b_q326_channel
 
 # inkling-small
 python inkling/inkling-small/quantize.py --bits 4 --out ./out/inkling-small_q4
 python inkling/inkling-small/quantize.py --bits 8 --out ./out/inkling-small_q8
+python inkling/inkling-small/quantize.py --bits 3.26 --codebook-share channel --out ./out/inkling-small_q326_channel
 ```
 
 ### OpenVLA / OpenPI / LingBot (VLA; vision + action heads included)
@@ -258,21 +285,27 @@ python inkling/inkling-small/quantize.py --bits 8 --out ./out/inkling-small_q8
 # openvla-7b  (HF: openvla/openvla-7b)
 python openvla/openvla-7b/quantize.py --bits 4 --out ./out/openvla-7b_q4
 python openvla/openvla-7b/quantize.py --bits 8 --out ./out/openvla-7b_q8
+python openvla/openvla-7b/quantize.py --bits 3.26 --codebook-share channel --out ./out/openvla-7b_q326_channel
 
 # openpi-pi0-3b  (HF: lerobot/pi0_base)
 python openpi/openpi-pi0-3b/quantize.py --bits 4 --out ./out/openpi-pi0-3b_q4
 python openpi/openpi-pi0-3b/quantize.py --bits 8 --out ./out/openpi-pi0-3b_q8
+python openpi/openpi-pi0-3b/quantize.py --bits 3.26 --codebook-share channel --out ./out/openpi-pi0-3b_q326_channel
 
 # openpi-pi0.5-3b  (HF: lerobot/pi05_base)
 python openpi/openpi-pi0.5-3b/quantize.py --bits 4 --out ./out/openpi-pi0.5-3b_q4
 python openpi/openpi-pi0.5-3b/quantize.py --bits 8 --out ./out/openpi-pi0.5-3b_q8
+python openpi/openpi-pi0.5-3b/quantize.py --bits 3.26 --codebook-share channel --out ./out/openpi-pi0.5-3b_q326_channel
 
 # lingbot-vla-v2-6b  (HF: robbyant/lingbot-vla-v2-6b)
 python lingbot/lingbot-vla-v2-6b/quantize.py --bits 4 --out ./out/lingbot-vla-v2-6b_q4
 python lingbot/lingbot-vla-v2-6b/quantize.py --bits 8 --out ./out/lingbot-vla-v2-6b_q8
+python lingbot/lingbot-vla-v2-6b/quantize.py --bits 3.26 --codebook-share channel --out ./out/lingbot-vla-v2-6b_q326_channel
 ```
 
 ## Optional mixed-precision commands
+
+Per-family **`--bits 3.26 --codebook-share channel`** (`_q326_channel`) is listed in the full-model section above as the recommended generation-quality recipe.
 
 ```bash
 # PLE-weighted (target <1GB on Gemma-4-E2B)
@@ -281,7 +314,7 @@ python gemma/gemma-4-e4b-it/quantize.py --bits 1.5 --workers 16 --out ./out/gemm
 python gemma/gemma-3n-e2b-it/quantize.py --bits 1.5 --workers 16 --out ./out/gemma-3n-e2b-it_q15
 python gemma/gemma-3n-e4b-it/quantize.py --bits 1.5 --workers 16 --out ./out/gemma-3n-e4b-it_q15
 
-# Layer-count mixed (2.54 / 3.26)
+# Layer-count mixed with default group codebooks (no channel)
 python qwen/qwen3.5-2b/quantize.py --bits 2.54 --out ./out/qwen3.5-2b_q254
 python qwen/qwen3.5-2b/quantize.py --bits 3.26 --out ./out/qwen3.5-2b_q326
 python gemma/gemma-4-e2b-it/quantize.py --bits 2.54 --out ./out/gemma-4-e2b-it_q254
@@ -327,6 +360,9 @@ python -m common.audit_cli gen \
 
 Report thresholds (orig-space `rel_rmse_orig` via blocked unrotate): q8 ≤ 0.15, q4 ≤ 0.35, other/mixed ≤ 0.50 (embed/PLE ≤ 0.80). New bundles use `format_version=2` + blocked Hadamard (re-quantize old pad-crop bundles).
 
+Archived A/B gen compare (Qwen3-0.6B: q4 / q4+channel / q326+channel / q8; rejected hetero profile):
+[`docs/gen_quant_eval_qwen3-0.6b.md`](docs/gen_quant_eval_qwen3-0.6b.md).
+
 ## Tests
 
 ```bash
@@ -342,6 +378,7 @@ python -m unittest discover -s tests -t .
   With CUDA + torch, group Lloyd-Max uses batched GPU (`lloyd_max_batched_torch`); otherwise
   CPU numpy (+ `--workers`). Use `--codebook-share channel` for higher fidelity (larger `weight.bin`;
   also GPU when available).
+- **`--bits 3.26 --codebook-share channel`**: sensitive layers preferentially 4-bit, others ~3-bit, per-channel codebooks; recommended to improve short-gen consistency vs plain q4+group. Use `_q326_channel` output dirs.
 - **`--bits 1.5`**: PLE / large embeddings default **1-bit**, compute layers **2–3 bit**,
   **parameter-weighted** average in ~1.35–1.55; Gemma-4-E2B target `weight.bin` **&lt; 1 GB**.
 - Only **2D** weights are codebook-quantized; 1D tensors (e.g. RMSNorm) are stored as raw fp16.

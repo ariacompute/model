@@ -17,6 +17,7 @@
 - `qwen/` `gemma/` `lfm/` `nanbeige/` `bonsai/` `inkling/` `openvla/` `openpi/` `lingbot/`：各模型 `quantize.py` + `config.yaml`
 - `tests/`：unittest；家族表见 `requirements.md` §1.1
 - 根：`AGENTS.md` / `requirements.md` / `task.md` / `README.md` / `requirements.txt`
+- `docs/`：评测归档（如 `gen_quant_eval_qwen3-0.6b.md`）
 
 ## 开发规范
 - Python ≥3.10；核心仅 numpy；HF 路径可选 torch/transformers/safetensors/huggingface_hub。
