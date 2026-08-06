@@ -1,9 +1,10 @@
 # Gen quant eval archive — Qwen3-0.6B
 
 Subject: `Qwen/Qwen3-0.6B` Aria bundles (`format_version=2`, blocked Hadamard).  
+
 Goal: compare short-generation consistency across quant recipes, and record why the proposed **heterogeneous** profile was not adopted.
 
-Local JSON reports (do not commit): `qwen3-0.6b_q4-audit_layer.json`, `qwen3-0.6b_q4-audit-gen.json`,
+Reports: `qwen3-0.6b_q4-audit_layer.json`, `qwen3-0.6b_q4-audit-gen.json`,
 `qwen3-0.6b_q4_channel-audit_gen.json`, `qwen3-0.6b_q326_channel-audit_gen.json`,
 `qwen3-0.6b_q8-audit_gen.json`.
 
