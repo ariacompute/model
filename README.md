@@ -33,7 +33,7 @@ includes your GPU arch. Pick the index by GPU:
 | Host GPU | Arch | Install |
 |----------|------|---------|
 | **H200** (Hopper) | `sm_90` | `cu124` or `cu128` |
-| **RTX PRO 6000** (Blackwell Server Edition) | **`sm_120`** | **`cu128` only** (PyTorch ≥ 2.7) — **not** `cu124` |
+| **RTX PRO 6000** (Blackwell Server Edition) | `sm_120` | `cu128` only (PyTorch ≥ 2.7) |
 
 ```bash
 # H200 (Hopper) — either is fine
@@ -72,10 +72,10 @@ Validated targets for full-model runs (either box is fine; VRAM drives GPU batch
 |--|----------|------------------|
 | CPU | **16 vCPUs** | **24 vCPUs** |
 | Host RAM | **200 GiB** | **218 GiB** |
-| GPU | **1× NVIDIA H200 NVLink** (Hopper) | **1× NVIDIA RTX PRO 6000** (Blackwell, `sm_120`) |
+| GPU | **1× NVIDIA H200 NVLink** (Hopper, `sm_90`) | **1× NVIDIA RTX PRO 6000** (Blackwell, `sm_120`) |
 | GPU memory | **141 GiB** | **96 GiB** |
 | Suggested `--workers` | 16 | 24 |
-| PyTorch CUDA wheel | `cu124` or `cu128` | **`cu128`** (not `cu124`) |
+| PyTorch CUDA wheel | `cu124` or `cu128` | `cu128` only |
 
 With CUDA torch installed, `codebook_share=group` uses batched GPU Lloyd-Max sized from device VRAM; CPU fallback uses `--workers` (default `min(32, cpu_count)`).
 
