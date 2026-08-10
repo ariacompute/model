@@ -11,7 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from common import hf_utils
-from common.errors import UnsupportedError
+from common.errors import ConfigError, UnsupportedError
 
 
 def _write_safetensors(path: str, tensors: dict[str, tuple[str, tuple[int, ...], bytes]]) -> None:
@@ -33,6 +33,55 @@ def _write_safetensors(path: str, tensors: dict[str, tuple[str, tuple[int, ...],
         f.write(h)
         for b in blobs:
             f.write(b)
+
+
+class TestConfigFromHf(unittest.TestCase):
+    def test_scalar_intermediate_size(self):
+        got = hf_utils.config_from_hf(
+            {
+                "hidden_size": 64,
+                "num_hidden_layers": 2,
+                "num_attention_heads": 4,
+                "num_key_value_heads": 2,
+                "intermediate_size": 128,
+                "vocab_size": 100,
+                "max_position_embeddings": 256,
+                "rope_theta": 10000.0,
+            }
+        )
+        self.assertEqual(got["intermediate_size"], 128)
+        self.assertEqual(got["num_layers"], 2)
+
+    def test_gemma3n_list_intermediate_size_from_text_config(self):
+        # MatFormer: per-layer MLP widths (Gemma-3n); flatten to max for aria metadata.
+        got = hf_utils.config_from_hf(
+            {
+                "model_type": "gemma3n",
+                "text_config": {
+                    "hidden_size": 2048,
+                    "num_hidden_layers": 4,
+                    "num_attention_heads": 8,
+                    "num_key_value_heads": 2,
+                    "intermediate_size": [8192, 16384, 8192, 4096],
+                    "vocab_size": 262144,
+                    "max_position_embeddings": 32768,
+                    "rope_theta": 1000000.0,
+                },
+            }
+        )
+        self.assertEqual(got["hidden_size"], 2048)
+        self.assertEqual(got["intermediate_size"], 16384)
+        self.assertEqual(got["num_layers"], 4)
+
+    def test_empty_intermediate_size_list_raises(self):
+        with self.assertRaises(ConfigError):
+            hf_utils.config_from_hf(
+                {
+                    "hidden_size": 64,
+                    "num_hidden_layers": 1,
+                    "intermediate_size": [],
+                }
+            )
 
 
 class TestHfUtilsSafetensors(unittest.TestCase):

@@ -156,6 +156,21 @@ def load_model_config(repo: str) -> dict:
     return config_from_hf(raw)
 
 
+def _scalar_int(value, *, name: str, reduce_seq=max) -> int:
+    """Coerce HF config ints; MatFormer may store per-layer sequences (e.g. Gemma-3n)."""
+    if isinstance(value, (list, tuple)):
+        if not value:
+            raise ConfigError(f"model config {name} is an empty list")
+        try:
+            return int(reduce_seq(int(x) for x in value))
+        except (TypeError, ValueError) as e:
+            raise ConfigError(f"model config {name} has non-integer entries: {value!r}") from e
+    try:
+        return int(value)
+    except (TypeError, ValueError) as e:
+        raise ConfigError(f"model config {name} must be int-like, got {type(value).__name__}") from e
+
+
 def config_from_hf(model_config: dict) -> dict:
     """Flatten common HF config (+ nested text_config) into aria model fields."""
     cfg = dict(model_config)
@@ -178,18 +193,21 @@ def config_from_hf(model_config: dict) -> dict:
         raise ConfigError("model config missing num_hidden_layers")
     heads = pick("num_attention_heads", "n_head") or 1
     kv = pick("num_key_value_heads", "num_kv_heads") or heads
-    inter = pick("intermediate_size", "ffn_dim", "n_inner") or (4 * int(hidden))
+    inter = pick("intermediate_size", "ffn_dim", "n_inner")
+    if inter is None:
+        inter = 4 * _scalar_int(hidden, name="hidden_size")
     vocab = pick("vocab_size") or 0
     ctx = pick("max_position_embeddings", "context_length") or 2048
     rope = pick("rope_theta") or 10000.0
     return {
-        "hidden_size": int(hidden),
-        "num_layers": int(layers),
-        "num_attention_heads": int(heads),
-        "num_kv_heads": int(kv),
-        "intermediate_size": int(inter),
-        "vocab_size": int(vocab),
-        "context_length": int(ctx),
+        "hidden_size": _scalar_int(hidden, name="hidden_size"),
+        "num_layers": _scalar_int(layers, name="num_hidden_layers"),
+        "num_attention_heads": _scalar_int(heads, name="num_attention_heads"),
+        "num_kv_heads": _scalar_int(kv, name="num_key_value_heads"),
+        # Gemma-3n MatFormer: per-layer intermediate_size list → keep max for metadata.
+        "intermediate_size": _scalar_int(inter, name="intermediate_size", reduce_seq=max),
+        "vocab_size": _scalar_int(vocab, name="vocab_size"),
+        "context_length": _scalar_int(ctx, name="context_length"),
         "rope_theta": float(rope),
     }
 
