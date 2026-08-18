@@ -171,13 +171,99 @@ def _scalar_int(value, *, name: str, reduce_seq=max) -> int:
         raise ConfigError(f"model config {name} must be int-like, got {type(value).__name__}") from e
 
 
+def _rope_theta_from_cfg(cfg: dict, pick) -> float:
+    """Prefer top-level rope_theta; else nested rope_parameters.*.rope_theta / theta."""
+    top = pick("rope_theta")
+    if top is not None:
+        return float(top)
+    rp = cfg.get("rope_parameters")
+    if isinstance(rp, dict):
+        # Prefer full_attention / global, then any nested dict, then flat theta.
+        for key in ("full_attention", "global", "default", "rope"):
+            sub = rp.get(key)
+            if isinstance(sub, dict):
+                for tk in ("rope_theta", "theta", "base"):
+                    if sub.get(tk) is not None:
+                        return float(sub[tk])
+        for tk in ("rope_theta", "theta", "base"):
+            if rp.get(tk) is not None:
+                return float(rp[tk])
+        for sub in rp.values():
+            if isinstance(sub, dict):
+                for tk in ("rope_theta", "theta", "base"):
+                    if sub.get(tk) is not None:
+                        return float(sub[tk])
+    return 10000.0
+
+
+def _optional_int(value, *, name: str):
+    if value is None:
+        return None
+    return _scalar_int(value, name=name)
+
+
+def _optional_bool(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        low = value.strip().lower()
+        if low in ("1", "true", "yes"):
+            return True
+        if low in ("0", "false", "no"):
+            return False
+    return bool(value)
+
+
 def config_from_hf(model_config: dict) -> dict:
     """Flatten common HF config (+ nested text_config) into aria model fields."""
     cfg = dict(model_config)
+    # Prefer nested text_config for LLM geometry when present (VL/VLA wrappers).
     text = cfg.get("text_config")
     if isinstance(text, dict):
         for k, v in text.items():
-            cfg.setdefault(k, v)
+            # Nested text wins over unrelated top-level vision/audio scalars.
+            if k not in cfg or cfg[k] is None:
+                cfg[k] = v
+            elif k in (
+                "hidden_size",
+                "num_hidden_layers",
+                "num_attention_heads",
+                "num_key_value_heads",
+                "intermediate_size",
+                "vocab_size",
+                "head_dim",
+                "rope_theta",
+                "rope_parameters",
+                "layer_types",
+                "hidden_act",
+                "hidden_activation",
+            ):
+                cfg[k] = v
+
+    # OpenVLA / Prismatic: language_model or llm_config may hold decoder dims.
+    for nest_key in ("llm_config", "language_model_config", "language_config"):
+        nest = cfg.get(nest_key)
+        if isinstance(nest, dict):
+            for k, v in nest.items():
+                cfg.setdefault(k, v)
+
+    # OpenPI / LeRobot: paligemma / vlm nested configs.
+    for nest_key in ("paligemma_config", "vlm_config", "policy_config"):
+        nest = cfg.get(nest_key)
+        if isinstance(nest, dict):
+            inner = nest.get("text_config") if isinstance(nest.get("text_config"), dict) else nest
+            if isinstance(inner, dict):
+                for k, v in inner.items():
+                    cfg.setdefault(k, v)
+
+    # LingBot: may only declare vlm_family — try common qwen3_vl-sized defaults via nest.
+    if cfg.get("vlm_family") and cfg.get("hidden_size") is None:
+        # Cannot invent geometry; surface a clear error below.
+        pass
 
     def pick(*keys, default=None):
         for k in keys:
@@ -187,19 +273,23 @@ def config_from_hf(model_config: dict) -> dict:
 
     hidden = pick("hidden_size", "d_model", "n_embd")
     if hidden is None:
-        raise ConfigError("model config missing hidden_size")
+        raise ConfigError(
+            "model config missing hidden_size "
+            "(need top-level, text_config, or VLA nested llm/paligemma config)"
+        )
     layers = pick("num_hidden_layers", "n_layer", "num_layers")
     if layers is None:
         raise ConfigError("model config missing num_hidden_layers")
     heads = pick("num_attention_heads", "n_head") or 1
     kv = pick("num_key_value_heads", "num_kv_heads") or heads
-    inter = pick("intermediate_size", "ffn_dim", "n_inner")
+    inter = pick("intermediate_size", "ffn_dim", "n_inner", "block_ff_dim")
     if inter is None:
         inter = 4 * _scalar_int(hidden, name="hidden_size")
     vocab = pick("vocab_size") or 0
-    ctx = pick("max_position_embeddings", "context_length") or 2048
-    rope = pick("rope_theta") or 10000.0
-    return {
+    ctx = pick("max_position_embeddings", "context_length", "model_max_length") or 2048
+    rope = _rope_theta_from_cfg(cfg, pick)
+
+    out = {
         "hidden_size": _scalar_int(hidden, name="hidden_size"),
         "num_layers": _scalar_int(layers, name="num_hidden_layers"),
         "num_attention_heads": _scalar_int(heads, name="num_attention_heads"),
@@ -210,6 +300,40 @@ def config_from_hf(model_config: dict) -> dict:
         "context_length": _scalar_int(ctx, name="context_length"),
         "rope_theta": float(rope),
     }
+
+    head_dim = pick("head_dim")
+    if head_dim is not None:
+        out["head_dim"] = _scalar_int(head_dim, name="head_dim")
+
+    layer_types = pick("layer_types")
+    if isinstance(layer_types, list) and layer_types:
+        out["layer_types"] = [str(x) for x in layer_types]
+
+    n_kv_shared = pick("num_kv_shared_layers")
+    if n_kv_shared is not None:
+        out["num_kv_shared_layers"] = _scalar_int(n_kv_shared, name="num_kv_shared_layers")
+
+    dbl = pick("use_double_wide_mlp")
+    if dbl is not None:
+        out["use_double_wide_mlp"] = _optional_bool(dbl)
+
+    act = pick("hidden_act", "hidden_activation")
+    if act is not None:
+        out["hidden_act"] = str(act)
+
+    n_experts = pick("num_experts", "num_local_experts")
+    if n_experts is not None:
+        out["num_experts"] = _scalar_int(n_experts, name="num_experts")
+    top_k = pick("num_experts_per_tok", "num_experts_per_token", "moe_top_k")
+    if top_k is not None:
+        out["num_experts_per_tok"] = _scalar_int(top_k, name="num_experts_per_tok")
+
+    tie = pick("tie_word_embeddings")
+    if tie is not None:
+        out["tie_word_embeddings"] = _optional_bool(tie)
+
+    return out
+
 
 
 def load_model_info(repo: str) -> list[tuple[str, tuple[int, ...]]]:

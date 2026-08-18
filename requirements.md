@@ -95,6 +95,29 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 - CLI：`--bits` 接受 `8`；其余标志不变。
 - 流式：`load_model_info` →（若 `1.5`）加权分配 → `stream_weights` 逐张量量化。
 
+### 3.9 `config_from_hf` 扩展（与 engine §3.3.1 协同）
+
+Aria bundle `config.json` → `"model"` **必选**字段保持：
+`hidden_size` / `num_layers` / `num_attention_heads` / `num_kv_heads` /
+`intermediate_size` / `vocab_size` / `context_length` / `rope_theta`。
+
+**新增（有则写入，engine 可选用；禁止静默丢关键几何）：**
+
+| 字段 | 来源示例 | 用途 |
+|------|----------|------|
+| `head_dim` | HF `head_dim` | Gemma / Qwen3.5 几何 |
+| `layer_types` | `layer_types` / `full_attn_idxs` | LFM conv、Gemma sliding、Qwen3.5 linear attn |
+| `num_kv_shared_layers` | Gemma-4 | KV-share 边界 |
+| `use_double_wide_mlp` | Gemma-4 E2B | 文档/校验；runtime 仍以权重形状为准 |
+| `hidden_act` | `hidden_act` / `hidden_activation` | SwiGLU vs GeGLU |
+| `rope_theta`（修正） | 顶栏或 `rope_parameters.*.rope_theta` / `theta` | 禁止有 nested θ 时默认 10000 |
+| `block_ff_dim` → `intermediate_size` | LFM2 | 无 `intermediate_size` 时用 `block_ff_dim` |
+| `context_length`（修正） | 另认 `model_max_length` | Inkling 等 |
+| `num_experts` / `num_experts_per_tok` | MoE | LFM A1B / Inkling |
+| `tie_word_embeddings` | HF | lm_head 回退策略 |
+
+**VLA**：OpenVLA / OpenPI / LingBot 须能从 HF/LeRobot 元数据写出可用 `model` 块（或明确 `ConfigError` 说明缺哪些键），禁止量化成功却无合法 `model` 几何。
+
 ## 4. 产物与体积
 
 - `q4` / `q8`：索引约 `params×0.5` / `params×1` 字节（`group` 码本额外较小）。
@@ -147,3 +170,4 @@ Legacy `format_version<2`（全局 pad-crop）仍可报 `rel_rmse_orig_zeropad` 
 - [x] 批量家族薄封装（共用 `common.cli`）可接受
 - [x] A+B 审计：独立 `audit_cli`；阈值仅报告；text vs VLA 分流
 - [x] Hadamard **blocked**（无全局 pad-crop）；`format_version=2`；与 engine HDM 契约对齐
+- [x] §3.9 `config_from_hf` 扩展字段（head_dim / layer_types / rope_parameters / block_ff_dim / VLA 几何）可接受

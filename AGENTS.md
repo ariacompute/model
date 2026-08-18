@@ -38,7 +38,7 @@
 - `python -m common.audit_cli gen --bundle ./out/…_q4 --model … --kind text|vla`
 
 ## 进行中需求
-见 `task.md`。Spec 见 `requirements.md`。
+见 `task.md`（**T15–T18** 已完成：`config_from_hf` 扩展，与 engine §3.3.1 协同）。Spec 见 `requirements.md` §3.9。
 
 ## 注意事项
 - 黄金路径：q4/q8 tiny → `load_bundle` → `dequantize` / `reconstruct_weight` 误差有界。

@@ -83,6 +83,128 @@ class TestConfigFromHf(unittest.TestCase):
                 }
             )
 
+    def test_gemma4_nested_fields_and_rope_parameters(self):
+        got = hf_utils.config_from_hf(
+            {
+                "architectures": ["Gemma4ForConditionalGeneration"],
+                "vision_config": {"hidden_size": 768, "intermediate_size": 3072},
+                "text_config": {
+                    "hidden_size": 1536,
+                    "num_hidden_layers": 35,
+                    "num_attention_heads": 8,
+                    "num_key_value_heads": 1,
+                    "intermediate_size": 6144,
+                    "vocab_size": 262144,
+                    "max_position_embeddings": 131072,
+                    "head_dim": 256,
+                    "num_kv_shared_layers": 20,
+                    "use_double_wide_mlp": True,
+                    "hidden_activation": "gelu_pytorch_tanh",
+                    "layer_types": ["sliding_attention", "full_attention"],
+                    "rope_parameters": {
+                        "full_attention": {"rope_theta": 1000000.0},
+                        "sliding_attention": {"rope_theta": 10000.0},
+                    },
+                    "tie_word_embeddings": True,
+                },
+            }
+        )
+        self.assertEqual(got["hidden_size"], 1536)
+        self.assertEqual(got["intermediate_size"], 6144)
+        self.assertEqual(got["head_dim"], 256)
+        self.assertEqual(got["num_kv_shared_layers"], 20)
+        self.assertTrue(got["use_double_wide_mlp"])
+        self.assertEqual(got["hidden_act"], "gelu_pytorch_tanh")
+        self.assertEqual(got["rope_theta"], 1000000.0)
+        self.assertEqual(got["layer_types"], ["sliding_attention", "full_attention"])
+        self.assertTrue(got["tie_word_embeddings"])
+
+    def test_lfm2_block_ff_dim(self):
+        got = hf_utils.config_from_hf(
+            {
+                "hidden_size": 1024,
+                "num_hidden_layers": 16,
+                "num_attention_heads": 8,
+                "num_key_value_heads": 8,
+                "block_ff_dim": 6656,
+                "vocab_size": 65536,
+                "max_position_embeddings": 32768,
+                "layer_types": ["conv", "full_attention", "conv"],
+                "rope_parameters": {"rope_theta": 1000000.0},
+            }
+        )
+        self.assertEqual(got["intermediate_size"], 6656)
+        self.assertEqual(got["rope_theta"], 1000000.0)
+        self.assertEqual(got["layer_types"][0], "conv")
+
+    def test_qwen35_linear_attention_and_rope(self):
+        got = hf_utils.config_from_hf(
+            {
+                "model_type": "qwen3_5",
+                "text_config": {
+                    "hidden_size": 2048,
+                    "num_hidden_layers": 28,
+                    "num_attention_heads": 16,
+                    "num_key_value_heads": 2,
+                    "intermediate_size": 6144,
+                    "vocab_size": 151936,
+                    "max_position_embeddings": 262144,
+                    "head_dim": 256,
+                    "hidden_act": "silu",
+                    "layer_types": ["linear_attention", "full_attention"],
+                    "rope_parameters": {"mrope": {"rope_theta": 10000000.0}},
+                },
+            }
+        )
+        self.assertEqual(got["head_dim"], 256)
+        self.assertEqual(got["rope_theta"], 10000000.0)
+        self.assertIn("linear_attention", got["layer_types"])
+
+    def test_inkling_model_max_length_and_moe(self):
+        got = hf_utils.config_from_hf(
+            {
+                "text_config": {
+                    "hidden_size": 2048,
+                    "num_hidden_layers": 24,
+                    "num_attention_heads": 16,
+                    "num_key_value_heads": 4,
+                    "intermediate_size": 2048,
+                    "vocab_size": 128256,
+                    "model_max_length": 1048576,
+                    "num_experts": 256,
+                    "num_experts_per_tok": 6,
+                    "rope_theta": 500000.0,
+                },
+            }
+        )
+        self.assertEqual(got["context_length"], 1048576)
+        self.assertEqual(got["num_experts"], 256)
+        self.assertEqual(got["num_experts_per_tok"], 6)
+
+    def test_openvla_llm_nested_config(self):
+        got = hf_utils.config_from_hf(
+            {
+                "model_type": "openvla",
+                "llm_config": {
+                    "hidden_size": 4096,
+                    "num_hidden_layers": 32,
+                    "num_attention_heads": 32,
+                    "num_key_value_heads": 32,
+                    "intermediate_size": 11008,
+                    "vocab_size": 32000,
+                    "max_position_embeddings": 4096,
+                    "rope_theta": 10000.0,
+                    "hidden_act": "silu",
+                },
+            }
+        )
+        self.assertEqual(got["hidden_size"], 4096)
+        self.assertEqual(got["num_layers"], 32)
+
+    def test_vla_missing_geometry_raises(self):
+        with self.assertRaises(ConfigError):
+            hf_utils.config_from_hf({"vlm_family": "qwen3_vl"})
+
 
 class TestHfUtilsSafetensors(unittest.TestCase):
     def test_iter_f32_and_f16(self):

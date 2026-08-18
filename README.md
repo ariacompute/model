@@ -281,6 +281,10 @@ python inkling/inkling-small/quantize.py --bits 3.26 --codebook-share channel --
 
 ### OpenVLA / OpenPI / LingBot (VLA; vision + action heads included)
 
+`config_from_hf` flattens nested LLM geometry from `llm_config` / `language_model_config` /
+`paligemma_config` / `vlm_config`. If `hidden_size` (or equivalent) cannot be resolved,
+quantize fails with a clear `ConfigError` instead of writing a broken bundle.
+
 ```bash
 # openvla-7b  (HF: openvla/openvla-7b)
 python openvla/openvla-7b/quantize.py --bits 4 --out ./out/openvla-7b_q4

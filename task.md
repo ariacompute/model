@@ -33,3 +33,21 @@
 - [x] `hadamard_rotate` / `unrotate`：greedy 2 幂分块；meta `mode=blocked`
 - [x] bundle `format_version=2`；`reconstruct_weight`；audit 原域 ≈ rot
 - [x] 单测非 2 幂 roundtrip；README / AGENTS
+
+## 与 engine 全家族对齐（§3.9）
+
+### T15 — Spec
+- [x] `requirements.md` §3.9；本文件 T15–T18；`AGENTS.md` 进行中
+
+### T16 — `config_from_hf` 几何字段
+- [x] `head_dim` / `layer_types` / `num_kv_shared_layers` / `use_double_wide_mlp` / `hidden_act`
+- [x] `rope_parameters` → `rope_theta`；`block_ff_dim` → `intermediate_size`；`model_max_length` → `context_length`
+- [x] MoE：`num_experts` / `num_experts_per_tok`；`tie_word_embeddings`
+- [x] 单测：Gemma-4 / LFM2-350M / Qwen3.5 / Inkling 样例 JSON
+
+### T17 — VLA config flatten
+- [x] OpenVLA / OpenPI / LingBot：可写出合法 `model` 或明确 `ConfigError`
+- [x] 单测 + README 说明
+
+### T18 — Registry 锁
+- [x] 与 engine §1.1 对齐 `lfm2.5-2.6b`（保留双方或双方删除）

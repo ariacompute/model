@@ -282,6 +282,10 @@ python inkling/inkling-small/quantize.py --bits 3.26 --codebook-share channel --
 
 ### OpenVLA / OpenPI / LingBot（VLA；含 vision / action）
 
+`config_from_hf` 会从 `llm_config` / `language_model_config` / `paligemma_config` /
+`vlm_config` 展开嵌套 LLM 几何；若无法解析 `hidden_size`（或等价字段），则以明确
+`ConfigError` 失败，而不是写出坏 bundle。
+
 ```bash
 # openvla-7b  (HF: openvla/openvla-7b)
 python openvla/openvla-7b/quantize.py --bits 4 --out ./out/openvla-7b_q4
