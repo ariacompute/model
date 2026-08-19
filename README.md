@@ -418,6 +418,45 @@ python scripts/diag_qwen3_chat.py \
 
 Teacher for the engine is **HF + reconstruct inject**, not raw fp32.
 
+### Gemma-4 chat diagnostic
+
+Use this pair when `gemma-4-e2b-it_q4` chat is garbage (engine.log Hello → `"uhnyaчь…"` / `prompt_tokens: 28`) after Qwen3 on the same host is fine. Both sides share the engine `gemma_it` string (`<bos><start_of_turn>user…<start_of_turn>model\n`), default user `Hello`, greedy `max_tokens=32`.
+
+| Script | What it isolates |
+|--------|------------------|
+| [`scripts/diag_gemma4_chat.py`](scripts/diag_gemma4_chat.py) | **Quant + template**: HF fp32 vs `reconstruct_weight` inject into the same HF graph (VL wrapper) |
+| [`../engine/scripts/diag_gemma4_chat.py`](../engine/scripts/diag_gemma4_chat.py) | **Engine graph**: OpenAI `/v1/chat/completions` vs the model JSON (`--peer-report`) |
+
+**1. Model side** (GPU recommended; tokenizer from `--hf`; two fp32 copies of E2B need RAM):
+
+```bash
+# from this repo root; CUDA torch + transformers required
+pip install torch transformers
+python scripts/diag_gemma4_chat.py \
+  --bundle ~/.ariacompute/models/gemma-4-e2b-it_q4 \
+  --hf google/gemma-4-E2B-it \
+  --device cuda \
+  --report ./out/model_diag_gemma4.json
+```
+
+Read `chat.fp32` vs `chat.reconstruct`, plus `template_string_match` / `prompt_ids_match` / `inject`. Reconstruct greeting with `exact_prefix_len >= 4` means the **bundle is usable in HF**; leftover serve garbage is not a quant bug. `prompt_ids_len_engine_template` should be **28** for Hello if it matches `engine.log`.
+
+**2. Engine side** (serve the **same** bundle, no cloud handoff):
+
+```bash
+# from the sibling engine repo; aria-engine already listening
+./aria-engine serve gemma-4-e2b-it_q4 \
+  --bind 127.0.0.1:8080 \
+  --hybrid-execution device
+python scripts/diag_gemma4_chat.py \
+  --url http://127.0.0.1:8080 \
+  --bundle ~/.ariacompute/models/gemma-4-e2b-it_q4 \
+  --peer-report ../model/out/model_diag_gemma4.json \
+  --report ./out/engine_diag_gemma4.json
+```
+
+Hints match the Qwen3 table (`TEMPLATE` / `QUANT` / `ENGINE_GRAPH`), plus `INJECT` if bundle names miss the HF VL `language_model` keys.
+
 ## Tests
 
 ```bash
