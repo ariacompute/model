@@ -367,6 +367,57 @@ Report thresholds (orig-space `rel_rmse_orig` via blocked unrotate): q8 ≤ 0.15
 Archived A/B gen compare (Qwen3-0.6B: q4 / q4+channel / q326+channel / q8; rejected hetero profile):
 [`docs/gen_quant_eval_qwen3-0.6b.md`](docs/gen_quant_eval_qwen3-0.6b.md).
 
+### Qwen3 chat diagnostic
+
+Use this pair when `aria-engine` chat looks like garbage (e.g. Hello → `"olum啦…"`) but layer RMSE looks fine. They share the same ChatML string (`enable_thinking=False` / empty `<think>`), default user `Hello`, greedy `max_tokens=32`.
+
+| Script | What it isolates |
+|--------|------------------|
+| [`scripts/diag_qwen3_chat.py`](scripts/diag_qwen3_chat.py) | **Quant + template**: HF fp32 vs `reconstruct_weight` inject into the same HF graph |
+| [`../engine/scripts/diag_qwen3_chat.py`](../engine/scripts/diag_qwen3_chat.py) | **Engine graph**: OpenAI `/v1/chat/completions` vs the model JSON (`--peer-report`) |
+
+**1. Model side** (GPU recommended; tokenizer is loaded from `--hf`, not the Aria bundle):
+
+```bash
+# from this repo root; CUDA torch + transformers required
+pip install torch transformers
+python scripts/diag_qwen3_chat.py \
+  --bundle ~/.ariacompute/models/qwen3-0.6b_q4 \
+  --hf Qwen/Qwen3-0.6B \
+  --device cuda \
+  --report ./out/model_diag_qwen3.json
+```
+
+`--device auto` picks CUDA when available. Attention is eager (no hub CUDA JIT). If compile still fails: `sudo apt install python3-dev`.
+
+Read `chat.fp32` vs `chat.reconstruct`, plus `template_string_match` / `prompt_ids_match`. A reconstruct greeting such as `"Hello! How can I assist you today?"` with `exact_prefix_len >= 4` means the **bundle is usable in HF**; leftover engine garbage is not a quant bug.
+
+**2. Engine side** (serve the **same** bundle, no cloud handoff):
+
+```bash
+# from the sibling engine repo; aria-engine already listening
+./aria-engine serve qwen3-0.6b_q4 \
+  --bind 127.0.0.1:8080 \
+  --hybrid-execution device
+python scripts/diag_qwen3_chat.py \
+  --url http://127.0.0.1:8080 \
+  --bundle ~/.ariacompute/models/qwen3-0.6b_q4 \
+  --peer-report ../model/out/model_diag_qwen3.json \
+  --report ./out/engine_diag_qwen3.json
+```
+
+`--timeout` defaults to 300s (CPU decode can be slow). Optional: `pip install tokenizers` so prompt ids are encoded from `bundle/tokenizer.json`.
+
+**How to read `hints`**
+
+| Observation | Likely cause |
+|-------------|--------------|
+| `template_string_match` / `prompt_ids_match` is false | ChatML / tokenizer encode drift |
+| reconstruct greedy already diverges from fp32 (`QUANT:…`) | codebook / Hadamard / inject |
+| reconstruct chat looks ok, engine `content` does not (`ENGINE_GRAPH`) | Rust forward (HDM, embed row gather, RoPE, QK-norm, …) |
+
+Teacher for the engine is **HF + reconstruct inject**, not raw fp32.
+
 ## Tests
 
 ```bash
