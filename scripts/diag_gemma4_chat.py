@@ -128,11 +128,25 @@ def engine_gemma_it_template(user: str) -> str:
 
 
 def _as_id_list(ids) -> list[int]:
+    """Unwrap apply_chat_template(tokenize=True): list, tensor, or BatchEncoding."""
     if ids is None:
         return []
+    # Gemma-4 returns a mapping {'input_ids': [...], 'attention_mask': ...}, not a list.
+    if not isinstance(ids, (list, tuple, str, bytes)) and hasattr(ids, "get"):
+        got = ids.get("input_ids")
+        if got is None:
+            got = ids.get("ids")
+        if got is not None:
+            ids = got
+    elif hasattr(ids, "input_ids"):
+        ids = ids.input_ids
+    if hasattr(ids, "detach"):
+        ids = ids.detach()
+    if hasattr(ids, "cpu"):
+        ids = ids.cpu()
     if hasattr(ids, "tolist"):
         ids = ids.tolist()
-    if isinstance(ids, list) and ids and isinstance(ids[0], list):
+    if isinstance(ids, list) and ids and isinstance(ids[0], (list, tuple)):
         ids = ids[0]
     return [int(x) for x in ids]
 
