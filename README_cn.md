@@ -421,7 +421,7 @@ python scripts/diag_qwen3_chat.py \
 
 ### Gemma-4 对话诊断
 
-当 `gemma-4-e2b-it_q4` 聊天乱码（`engine.log` Hello → `"uhnyaчь…"` / `prompt_tokens: 28`），而同机 Qwen3 已正常时，用这一对脚本拆分。两侧共用引擎 `gemma_it` 字符串（`<bos><start_of_turn>user…<start_of_turn>model\n`），默认 user `Hello`，greedy `max_tokens=32`。
+当 `gemma-4-e2b-it_q4` 聊天乱码（`engine.log` Hello → `"uhnyaчь…"`）时，用这一对脚本拆分。两侧共用引擎 `gemma4_it` 字符串（`<bos><|turn>user…<turn|>\n<|turn>model\n`），默认 user `Hello`，greedy `max_tokens=32`。官方 Hello prompt 为 **10** token（`<|turn>` / `<turn|>`）；旧的 Gemma-3 `<start_of_turn>` 会碎成 28 段。
 
 | 脚本 | 隔离什么 |
 |------|----------|
@@ -440,7 +440,7 @@ python scripts/diag_gemma4_chat.py \
   --report ./out/model_diag_gemma4.json
 ```
 
-对照 `chat.fp32` 与 `chat.reconstruct`，以及 `template_string_match` / `prompt_ids_match` / `inject`。若 reconstruct 已能正常问候且 `exact_prefix_len >= 4`，说明 **bundle 在 HF 上可用**，引擎乱码不是量化问题。Hello 的 `prompt_ids_len_engine_template` 若对齐 `engine.log` 应为 **28**。
+对照 `chat.fp32` 与 `chat.reconstruct`，以及 `template_string_match` / `prompt_ids_match` / `inject`。若 reconstruct 已能正常问候且 `exact_prefix_len >= 4`，说明 **bundle 在 HF 上可用**，引擎乱码不是量化问题。Hello 的 `prompt_ids_len_engine_template` 应为 **10**。
 
 **2. engine 侧**（必须 `serve` **同一份** bundle，且不走云 handoff）：
 

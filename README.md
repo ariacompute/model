@@ -420,7 +420,7 @@ Teacher for the engine is **HF + reconstruct inject**, not raw fp32.
 
 ### Gemma-4 chat diagnostic
 
-Use this pair when `gemma-4-e2b-it_q4` chat is garbage (engine.log Hello → `"uhnyaчь…"` / `prompt_tokens: 28`) after Qwen3 on the same host is fine. Both sides share the engine `gemma_it` string (`<bos><start_of_turn>user…<start_of_turn>model\n`), default user `Hello`, greedy `max_tokens=32`.
+Use this pair when `gemma-4-e2b-it_q4` chat is garbage (engine.log Hello → `"uhnyaчь…"`). Both sides share the engine `gemma4_it` string (`<bos><|turn>user…<turn|>\n<|turn>model\n`), default user `Hello`, greedy `max_tokens=32`. Official Hello prompt is **10** tokens (`<|turn>` / `<turn|>`); the old Gemma-3 `<start_of_turn>` markers encoded as 28 fragments.
 
 | Script | What it isolates |
 |--------|------------------|
@@ -439,7 +439,7 @@ python scripts/diag_gemma4_chat.py \
   --report ./out/model_diag_gemma4.json
 ```
 
-Read `chat.fp32` vs `chat.reconstruct`, plus `template_string_match` / `prompt_ids_match` / `inject`. Reconstruct greeting with `exact_prefix_len >= 4` means the **bundle is usable in HF**; leftover serve garbage is not a quant bug. `prompt_ids_len_engine_template` should be **28** for Hello if it matches `engine.log`.
+Read `chat.fp32` vs `chat.reconstruct`, plus `template_string_match` / `prompt_ids_match` / `inject`. Reconstruct greeting with `exact_prefix_len >= 4` means the **bundle is usable in HF**; leftover serve garbage is not a quant bug. `prompt_ids_len_engine_template` should be **10** for Hello.
 
 **2. Engine side** (serve the **same** bundle, no cloud handoff):
 

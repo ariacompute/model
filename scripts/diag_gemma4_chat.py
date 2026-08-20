@@ -2,8 +2,9 @@
 """GPU diagnostic: HF fp32 vs bundle reconstruct_weight on the same Gemma-4 chat prompt.
 
 Isolates *quant* vs *chat-template* (engine.log Hello garbage, e.g. "uhnyaчь…",
-prompt_tokens=28). Uses official Gemma apply_chat_template plus the engine
-hardcoded gemma_it string so prompt ids can be compared.
+prompt_tokens=28 from the old Gemma-3 `<start_of_turn>` markers). Uses official
+Gemma apply_chat_template plus the engine gemma4_it string (`<|turn>` / `<turn|>`)
+so prompt ids can be compared.
 
 Gemma-4-E2B-it is a VL wrapper (Gemma4ForConditionalGeneration); inject still
 targets language tensors. Tokenizer is loaded from --hf (not the Aria bundle).
@@ -123,8 +124,8 @@ def _encode_ids(tok, text: str) -> list[int]:
 
 
 def engine_gemma_it_template(user: str) -> str:
-    """Must match inference/src/chat.rs gemma_it (literal <bos> prefix)."""
-    return f"<bos><start_of_turn>user\n{user}<end_of_turn>\n<start_of_turn>model\n"
+    """Must match inference/src/chat.rs gemma4_it."""
+    return f"<bos><|turn>user\n{user}<turn|>\n<|turn>model\n"
 
 
 def _as_id_list(ids) -> list[int]:
@@ -361,10 +362,10 @@ def main() -> int:
         hints.append(
             "TEMPLATE: apply_chat_template(tokenize=True) ids != encode(template, add_special=False)"
         )
-    if engine_ids and len(engine_ids) != 28 and args.user == "Hello":
+    if engine_ids and len(engine_ids) != 10 and args.user == "Hello":
         hints.append(
             f"PROMPT_LEN: engine-template encode len={len(engine_ids)} "
-            "(engine.log Hello serve used prompt_tokens=28)"
+            "(HF Gemma-4 Hello template is 10 ids; old <start_of_turn> encode was 28)"
         )
     if int(prefix_fr.get("exact_prefix_len") or 0) >= 4 and int(
         prefix_chat.get("exact_prefix_len") or 0
