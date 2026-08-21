@@ -198,7 +198,11 @@ def _alias_keys(name: str) -> list[str]:
 
 
 def _inject_bundle(model, tensors: dict, hadamard_seed: int) -> dict:
-    """Copy reconstruct + raw 1D tensors into matching HF keys (with VL aliases)."""
+    """Copy reconstruct + raw 1D tensors into matching HF keys (with VL aliases).
+
+    Full E2B reconstruct is CPU-heavy (Hadamard unrotate per matrix) and can take
+    many minutes with no GPU activity — not a hang.
+    """
     import numpy as np
     import torch
 
@@ -207,8 +211,22 @@ def _inject_bundle(model, tensors: dict, hadamard_seed: int) -> dict:
     sd = model.state_dict()
     n_quant = n_raw = n_shape = 0
     unmatched: list[str] = []
+    n_total = len(tensors)
+    t0 = time.perf_counter()
+    print(
+        f"injecting {n_total} bundle tensors (CPU reconstruct_weight; may take several minutes) …",
+        file=sys.stderr,
+        flush=True,
+    )
     with torch.no_grad():
-        for name, obj in tensors.items():
+        for i, (name, obj) in enumerate(tensors.items(), 1):
+            if i == 1 or i % 25 == 0 or i == n_total:
+                elapsed = time.perf_counter() - t0
+                print(
+                    f"  inject {i}/{n_total} ({elapsed:.0f}s) last={name}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             key = next((k for k in _alias_keys(name) if k in sd), None)
             if key is None:
                 unmatched.append(name)
@@ -230,6 +248,12 @@ def _inject_bundle(model, tensors: dict, hadamard_seed: int) -> dict:
                     continue
                 t.copy_(torch.from_numpy(arr.astype(np.float32, copy=False)).to(dtype=t.dtype))
                 n_raw += 1
+    print(
+        f"inject done in {time.perf_counter() - t0:.1f}s "
+        f"(quant={n_quant} raw={n_raw} unmatched={len(unmatched)})",
+        file=sys.stderr,
+        flush=True,
+    )
     n_bundle_quant = sum(1 for v in tensors.values() if isinstance(v, quant_mod.QuantTensor))
     n_bundle_raw = len(tensors) - n_bundle_quant
     return {
@@ -309,17 +333,24 @@ def main() -> int:
     hf_ids = _encode_ids(tok, hf_prompt)
 
     print(
-        f"loading HF {args.hf} on {device} (eager attn, no hub CUDA kernels) …",
+        f"loading HF {args.hf} on {device} (eager attn, no hub CUDA kernels; "
+        "loads the model twice — fp32 teacher + inject target) …",
         file=sys.stderr,
+        flush=True,
     )
+    print("  [1/2] fp32 teacher …", file=sys.stderr, flush=True)
     base = _load_gemma(torch, args.hf, device)
+    print("  [2/2] fp32 shell for reconstruct inject …", file=sys.stderr, flush=True)
     quant_m = _load_gemma(torch, args.hf, device)
     inject = _inject_bundle(quant_m, tensors, seed)
     n_inj = int(inject["n_injected_quant"])
 
+    print("generate: HF chat template on fp32 …", file=sys.stderr, flush=True)
     chat_base = _gen(base, tok, hf_ids, max_new=args.max_new_tokens, device=device)
     if n_inj > 0:
+        print("generate: HF chat template on reconstruct …", file=sys.stderr, flush=True)
         chat_q = _gen(quant_m, tok, hf_ids, max_new=args.max_new_tokens, device=device)
+        print("generate: engine gemma4_it template on reconstruct …", file=sys.stderr, flush=True)
         eng_q = _gen(quant_m, tok, engine_ids, max_new=args.max_new_tokens, device=device)
     else:
         chat_q = None
@@ -327,12 +358,13 @@ def main() -> int:
 
     france = "The capital of France is"
     france_ids = _encode_ids(tok, france)
+    print("generate: France completion fp32 …", file=sys.stderr, flush=True)
     france_base = _gen(base, tok, france_ids, max_new=args.max_new_tokens, device=device)
-    france_q = (
-        _gen(quant_m, tok, france_ids, max_new=args.max_new_tokens, device=device)
-        if n_inj > 0
-        else None
-    )
+    if n_inj > 0:
+        print("generate: France completion reconstruct …", file=sys.stderr, flush=True)
+        france_q = _gen(quant_m, tok, france_ids, max_new=args.max_new_tokens, device=device)
+    else:
+        france_q = None
 
     prefix_chat = (
         exact_prefix_match(chat_base["new_ids"], chat_q["new_ids"])

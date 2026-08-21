@@ -177,20 +177,32 @@ def main() -> int:
     engine_ids = _encode_ids(tok, engine_text)
     hf_ids = _encode_ids(tok, hf_prompt)
 
-    print(f"loading HF {args.hf} on {device} (eager attn, no hub CUDA kernels) …", file=sys.stderr)
+    print(
+        f"loading HF {args.hf} on {device} (eager attn, no hub CUDA kernels; "
+        "loads the model twice — fp32 teacher + inject target) …",
+        file=sys.stderr,
+        flush=True,
+    )
+    print("  [1/2] fp32 teacher …", file=sys.stderr, flush=True)
     base = _load_causal_lm(AutoModelForCausalLM, torch, args.hf, device)
+    print("  [2/2] fp32 shell for reconstruct inject …", file=sys.stderr, flush=True)
     quant_m = _load_causal_lm(AutoModelForCausalLM, torch, args.hf, device)
-    n_inj = _inject_bundle_weights(quant_m, tensors, seed)
+    n_inj = _inject_bundle_weights(quant_m, tensors, seed, progress=True)
 
+    print("generate: HF chat template on fp32 …", file=sys.stderr, flush=True)
     chat_base = _gen(base, tok, hf_ids, max_new=args.max_new_tokens, device=device)
+    print("generate: HF chat template on reconstruct …", file=sys.stderr, flush=True)
     chat_q = _gen(quant_m, tok, hf_ids, max_new=args.max_new_tokens, device=device)
+    print("generate: engine ChatML template on reconstruct …", file=sys.stderr, flush=True)
     eng_q = _gen(
         quant_m, tok, engine_ids, max_new=args.max_new_tokens, device=device
     )
 
     france = "The capital of France is"
     france_ids = _encode_ids(tok, france)
+    print("generate: France completion fp32 …", file=sys.stderr, flush=True)
     france_base = _gen(base, tok, france_ids, max_new=args.max_new_tokens, device=device)
+    print("generate: France completion reconstruct …", file=sys.stderr, flush=True)
     france_q = _gen(quant_m, tok, france_ids, max_new=args.max_new_tokens, device=device)
 
     prefix_chat = exact_prefix_match(chat_base["new_ids"], chat_q["new_ids"])

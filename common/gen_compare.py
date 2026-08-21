@@ -29,14 +29,43 @@ def _try_import_torch():
     return (torch, AutoModelForCausalLM, AutoTokenizer), None
 
 
-def _inject_bundle_weights(model, tensors: dict, hadamard_seed: int) -> int:
-    """Copy inverse-Hadamard dequant weights into matching ``state_dict`` keys."""
+def _inject_bundle_weights(
+    model,
+    tensors: dict,
+    hadamard_seed: int,
+    *,
+    progress: bool = False,
+) -> int:
+    """Copy inverse-Hadamard dequant weights into matching ``state_dict`` keys.
+
+    When ``progress=True``, print CPU reconstruct progress to stderr (full-model
+    inject can take minutes with little GPU activity — not a hang).
+    """
+    import sys
+    import time
+
     import torch
 
     sd = model.state_dict()
     n = 0
+    n_total = len(tensors)
+    t0 = time.perf_counter()
+    if progress:
+        print(
+            f"injecting {n_total} bundle tensors (CPU reconstruct_weight; "
+            "may take several minutes) …",
+            file=sys.stderr,
+            flush=True,
+        )
     with torch.no_grad():
-        for name, obj in tensors.items():
+        for i, (name, obj) in enumerate(tensors.items(), 1):
+            if progress and (i == 1 or i % 25 == 0 or i == n_total):
+                elapsed = time.perf_counter() - t0
+                print(
+                    f"  inject {i}/{n_total} ({elapsed:.0f}s) last={name}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             if not isinstance(obj, quant.QuantTensor):
                 continue
             if name not in sd:
@@ -47,6 +76,12 @@ def _inject_bundle_weights(model, tensors: dict, hadamard_seed: int) -> int:
                 continue
             t.copy_(torch.from_numpy(np.asarray(recon, dtype=np.float32)).to(dtype=t.dtype))
             n += 1
+    if progress:
+        print(
+            f"inject done in {time.perf_counter() - t0:.1f}s (injected={n})",
+            file=sys.stderr,
+            flush=True,
+        )
     return n
 
 
