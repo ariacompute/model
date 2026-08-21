@@ -354,9 +354,38 @@ def config_from_hf(model_config: dict) -> dict:
     if prf is not None:
         out["partial_rotary_factor"] = float(prf)
 
+    _ensure_gemma4_geometry(out, cfg)
     return out
 
 
+def _ensure_gemma4_geometry(out: dict, raw_cfg: dict) -> None:
+    """Fail fast if Gemma-4 quantize would ship without engine-required geometry."""
+    mt = str(raw_cfg.get("model_type") or "").lower()
+    arch = raw_cfg.get("architectures") or []
+    arch_s = " ".join(str(a) for a in arch).lower() if isinstance(arch, list) else str(arch).lower()
+    text = raw_cfg.get("text_config") if isinstance(raw_cfg.get("text_config"), dict) else {}
+    text_mt = str(text.get("model_type") or "").lower()
+    if not (
+        "gemma4" in mt
+        or "gemma4" in text_mt
+        or "gemma4" in arch_s
+        or "gemma-4" in mt
+    ):
+        return
+    required = (
+        "layer_types",
+        "sliding_window",
+        "partial_rotary_factor",
+        "head_dim",
+        "global_head_dim",
+    )
+    missing = [k for k in required if out.get(k) is None]
+    if missing:
+        raise ConfigError(
+            "gemma-4 config_from_hf missing required engine fields: "
+            + ", ".join(missing)
+            + " (check text_config.sliding_window / rope_parameters / layer_types)"
+        )
 
 def load_model_info(repo: str) -> list[tuple[str, tuple[int, ...]]]:
     """List (name, shape) from safetensors headers only — no weight payloads."""
