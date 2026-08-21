@@ -236,6 +236,10 @@ def config_from_hf(model_config: dict) -> dict:
                 "intermediate_size",
                 "vocab_size",
                 "head_dim",
+                "global_head_dim",
+                "sliding_window",
+                "partial_rotary_factor",
+                "num_kv_shared_layers",
                 "rope_theta",
                 "rope_parameters",
                 "layer_types",
@@ -331,6 +335,24 @@ def config_from_hf(model_config: dict) -> dict:
     tie = pick("tie_word_embeddings")
     if tie is not None:
         out["tie_word_embeddings"] = _optional_bool(tie)
+
+    sliding = pick("sliding_window")
+    if sliding is not None:
+        out["sliding_window"] = _scalar_int(sliding, name="sliding_window")
+
+    ghd = pick("global_head_dim")
+    if ghd is not None:
+        out["global_head_dim"] = _scalar_int(ghd, name="global_head_dim")
+
+    prf = pick("partial_rotary_factor")
+    if prf is None:
+        rope_params = pick("rope_parameters")
+        if isinstance(rope_params, dict):
+            full = rope_params.get("full_attention")
+            if isinstance(full, dict) and full.get("partial_rotary_factor") is not None:
+                prf = full["partial_rotary_factor"]
+    if prf is not None:
+        out["partial_rotary_factor"] = float(prf)
 
     return out
 

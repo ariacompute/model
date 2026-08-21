@@ -97,12 +97,18 @@ class TestConfigFromHf(unittest.TestCase):
                     "vocab_size": 262144,
                     "max_position_embeddings": 131072,
                     "head_dim": 256,
+                    "global_head_dim": 512,
+                    "sliding_window": 512,
                     "num_kv_shared_layers": 20,
                     "use_double_wide_mlp": True,
                     "hidden_activation": "gelu_pytorch_tanh",
                     "layer_types": ["sliding_attention", "full_attention"],
                     "rope_parameters": {
-                        "full_attention": {"rope_theta": 1000000.0},
+                        "full_attention": {
+                            "rope_theta": 1000000.0,
+                            "rope_type": "proportional",
+                            "partial_rotary_factor": 0.25,
+                        },
                         "sliding_attention": {"rope_theta": 10000.0},
                     },
                     "tie_word_embeddings": True,
@@ -112,6 +118,9 @@ class TestConfigFromHf(unittest.TestCase):
         self.assertEqual(got["hidden_size"], 1536)
         self.assertEqual(got["intermediate_size"], 6144)
         self.assertEqual(got["head_dim"], 256)
+        self.assertEqual(got["global_head_dim"], 512)
+        self.assertEqual(got["sliding_window"], 512)
+        self.assertAlmostEqual(got["partial_rotary_factor"], 0.25)
         self.assertEqual(got["num_kv_shared_layers"], 20)
         self.assertTrue(got["use_double_wide_mlp"])
         self.assertEqual(got["hidden_act"], "gelu_pytorch_tanh")
