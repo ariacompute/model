@@ -7,10 +7,11 @@ Gemma apply_chat_template plus the engine gemma4_it string (`<|turn>` / `<turn|>
 so prompt ids can be compared.
 
 Gemma-4-E2B-it is a VL wrapper (Gemma4ForConditionalGeneration). Chat diag
-injects **text LM weights only** by default (skips audio_tower / vision_*);
-use --inject-all to reconstruct every tower (much slower). When the HF model is
-on CUDA, inject uses ``reconstruct_weight_torch`` (GPU FWHT) instead of numpy.
-Tokenizer is loaded from --hf (not the Aria bundle).
+injects **text LM layers only** by default (skips audio/vision towers **and**
+vocab-sized tables: ``embed_tokens`` / ``lm_head`` / PLE — keep HF fp32 so the
+first inject does not unpack ~vocab×hidden indices). Use ``--inject-embeddings``
+for those tables, ``--inject-all`` for every tower. CUDA inject uses chunked
+``reconstruct_weight_torch``. Tokenizer is loaded from --hf (not the Aria bundle).
 
 H200 example (from model repo root):
 
@@ -219,29 +220,51 @@ def _is_text_weight(name: str) -> bool:
     return not any(m in lower for m in _NON_TEXT_MARKERS)
 
 
+# Vocab / PLE tables: unpack alone is ~vocab×hidden indices; FWHT on K≈2^18 is heavy.
+_HUGE_TABLE_MARKERS = (
+    "embed_tokens",
+    "lm_head",
+    "per_layer_input",
+    "per_layer_emb",
+    "ple_weight",
+    ".output.weight",
+)
+
+
+def _is_huge_table(name: str) -> bool:
+    lower = name.lower()
+    return any(m in lower for m in _HUGE_TABLE_MARKERS) or lower.endswith("output.weight")
+
+
 def _inject_bundle(
     model,
     tensors: dict,
     hadamard_seed: int,
     *,
     text_only: bool = True,
+    inject_embeddings: bool = False,
 ) -> dict:
     """Copy reconstruct + raw 1D tensors into matching HF keys (with VL aliases).
 
-    By default skip vision/audio towers — chat compare only needs the LM. Full
-    E2B reconstruct of every tower is CPU-heavy and can take tens of minutes.
+    By default skip vision/audio towers and vocab-sized embedding/PLE/lm_head
+    tables (keep HF fp32) so chat layer inject progresses immediately.
     """
     import numpy as np
     import torch
 
     from common import quant as quant_mod
 
-    if text_only:
-        skipped = [n for n in tensors if not _is_text_weight(n)]
-        work = {n: t for n, t in tensors.items() if _is_text_weight(n)}
-    else:
-        skipped = []
-        work = tensors
+    skipped_non_text: list[str] = []
+    skipped_huge: list[str] = []
+    work: dict = {}
+    for n, t in tensors.items():
+        if text_only and not _is_text_weight(n):
+            skipped_non_text.append(n)
+            continue
+        if not inject_embeddings and _is_huge_table(n):
+            skipped_huge.append(n)
+            continue
+        work[n] = t
 
     sd = model.state_dict()
     n_quant = n_raw = n_shape = 0
@@ -253,17 +276,32 @@ def _inject_bundle(
     backend = f"torch:{recon_device}" if recon_device is not None else "numpy"
     print(
         f"injecting {n_total}/{len(tensors)} tensors "
-        f"(text_only={text_only}, skipped_non_text={len(skipped)}; "
+        f"(text_only={text_only}, skipped_non_text={len(skipped_non_text)}, "
+        f"skipped_huge={len(skipped_huge)}; "
         f"reconstruct_weight backend={backend}) …",
         file=sys.stderr,
         flush=True,
     )
+    if skipped_huge:
+        print(
+            f"  (kept HF fp32 for huge tables: {', '.join(skipped_huge[:6])}"
+            f"{'…' if len(skipped_huge) > 6 else ''}; pass --inject-embeddings to reconstruct)",
+            file=sys.stderr,
+            flush=True,
+        )
     with torch.no_grad():
         for i, (name, obj) in enumerate(work.items(), 1):
-            if i == 1 or i % 25 == 0 or i == n_total:
+            shape_hint = ""
+            if isinstance(obj, quant_mod.QuantTensor):
+                shape_hint = f" shape={tuple(obj.shape)} numel={int(obj.shape[0])*int(obj.shape[1])}"
+            # Log every tensor start so a slow unpack/FWHT is not mistaken for a hang.
+            if i == 1 or i % 10 == 0 or i == n_total or (
+                isinstance(obj, quant_mod.QuantTensor)
+                and int(obj.shape[0]) * int(obj.shape[1]) >= 1_000_000
+            ):
                 elapsed = time.perf_counter() - t0
                 print(
-                    f"  inject {i}/{n_total} ({elapsed:.0f}s) last={name}",
+                    f"  inject {i}/{n_total} ({elapsed:.0f}s) start={name}{shape_hint}",
                     file=sys.stderr,
                     flush=True,
                 )
@@ -318,11 +356,14 @@ def _inject_bundle(
         "n_bundle_raw": n_bundle_raw,
         "n_shape_mismatch": n_shape,
         "n_unmatched": len(unmatched),
-        "n_skipped_non_text": len(skipped),
+        "n_skipped_non_text": len(skipped_non_text),
+        "n_skipped_huge": len(skipped_huge),
         "text_only": text_only,
+        "inject_embeddings": inject_embeddings,
         "reconstruct_backend": backend,
         "unmatched_sample": unmatched[:20],
-        "skipped_non_text_sample": skipped[:12],
+        "skipped_non_text_sample": skipped_non_text[:12],
+        "skipped_huge_sample": skipped_huge[:12],
         "sd_n_tensors": len(sd),
     }
 
@@ -359,6 +400,11 @@ def main() -> int:
         "--inject-all",
         action="store_true",
         help="Also reconstruct vision/audio towers (slow; default is text LM only)",
+    )
+    p.add_argument(
+        "--inject-embeddings",
+        action="store_true",
+        help="Also reconstruct vocab/PLE/lm_head tables (slow; default keeps HF fp32)",
     )
     args = p.parse_args()
 
@@ -405,7 +451,13 @@ def main() -> int:
     base = _load_gemma(torch, args.hf, device)
     print("  [2/2] fp32 shell for reconstruct inject …", file=sys.stderr, flush=True)
     quant_m = _load_gemma(torch, args.hf, device)
-    inject = _inject_bundle(quant_m, tensors, seed, text_only=not args.inject_all)
+    inject = _inject_bundle(
+        quant_m,
+        tensors,
+        seed,
+        text_only=not args.inject_all,
+        inject_embeddings=args.inject_embeddings,
+    )
     n_inj = int(inject["n_injected_quant"])
 
     print("generate: HF chat template on fp32 …", file=sys.stderr, flush=True)

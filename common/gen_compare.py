@@ -66,10 +66,13 @@ def _inject_bundle_weights(
         )
     with torch.no_grad():
         for i, (name, obj) in enumerate(tensors.items(), 1):
-            if progress and (i == 1 or i % 25 == 0 or i == n_total):
+            if progress and (i == 1 or i % 10 == 0 or i == n_total):
                 elapsed = time.perf_counter() - t0
+                shape_s = ""
+                if isinstance(obj, quant.QuantTensor):
+                    shape_s = f" shape={tuple(obj.shape)}"
                 print(
-                    f"  inject {i}/{n_total} ({elapsed:.0f}s) last={name}",
+                    f"  inject {i}/{n_total} ({elapsed:.0f}s) start={name}{shape_s}",
                     file=sys.stderr,
                     flush=True,
                 )

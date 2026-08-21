@@ -105,6 +105,7 @@ def fwht_torch(a: "object") -> "object":
     """Batched FWHT along dim 0 for a ``(n, ...)`` torch tensor (n power of two).
 
     Returns a new tensor; does not mutate ``a``. Normalizes by ``1/sqrt(n)``.
+    Uses in-place butterfly stages (no per-stage full clones).
     """
     import torch
 
@@ -120,15 +121,19 @@ def fwht_torch(a: "object") -> "object":
     out = a.to(dtype=torch.float32).contiguous().clone()
     shape = tuple(out.shape)
     cols = int(out.numel() // n)
+    flat = out.view(n, cols)
     h = 1
     while h < n:
-        x = out.view(n // (2 * h), 2, h, cols)
-        u = x[:, 0].clone()
-        v = x[:, 1].clone()
-        x[:, 0].copy_(u + v)
-        x[:, 1].copy_(u - v)
+        # (n/(2h), 2, h, cols) — swap halves without cloning the full matrix twice.
+        x = flat.view(n // (2 * h), 2, h, cols)
+        u = x[:, 0]
+        v = x[:, 1]
+        s = u + v
+        d = u - v
+        x[:, 0].copy_(s)
+        x[:, 1].copy_(d)
         h *= 2
-    out.view(n, cols).mul_(1.0 / float(n) ** 0.5)
+    flat.mul_(1.0 / float(n) ** 0.5)
     return out.view(shape)
 
 
@@ -137,8 +142,13 @@ def hadamard_unrotate_torch(
     *,
     seed: int | None = None,
     device: str | object | None = None,
+    chunk_cols: int | None = None,
 ) -> tuple["object", dict]:
-    """Torch blocked unrotate (same tiles/signs as :func:`hadamard_unrotate`)."""
+    """Torch blocked unrotate (same tiles/signs as :func:`hadamard_unrotate`).
+
+    Processes columns in chunks so vocab-sized embeddings (K≈2e5) do not allocate
+    multi-GB temporary FWHT buffers.
+    """
     import torch
 
     if not isinstance(W_rot, torch.Tensor):
@@ -169,17 +179,29 @@ def hadamard_unrotate_torch(
         return W_rot.clone(), meta
 
     signs_map = _block_signs(seed, blocks)
+    max_block = max(int(b["size"]) for b in blocks)
+    # Cap work so max_block * chunk_cols * 4 bytes stays modest (~256 MiB).
+    if chunk_cols is None:
+        budget = max(1, (64 << 20) // max(max_block, 1))  # ~64M floats
+        chunk_cols = max(1, min(n, budget))
+    meta["chunked"] = chunk_cols < n
+    meta["chunk_width"] = int(chunk_cols)
+
     out = torch.empty_like(W_rot)
-    for b in blocks:
-        rs = int(b["start"])
-        sz = int(b["size"])
-        re = rs + sz
-        work = W_rot[rs:re].contiguous()
-        work = fwht_torch(work)
-        if signs_map is not None:
-            signs = torch.as_tensor(signs_map[rs], device=work.device, dtype=work.dtype)
-            work = work * signs[:, None]
-        out[rs:re] = work
+    for c0 in range(0, n, chunk_cols):
+        c1 = min(n, c0 + chunk_cols)
+        for b in blocks:
+            rs = int(b["start"])
+            sz = int(b["size"])
+            re = rs + sz
+            work = W_rot[rs:re, c0:c1].contiguous()
+            work = fwht_torch(work)
+            if signs_map is not None:
+                signs = torch.as_tensor(
+                    signs_map[rs], device=work.device, dtype=work.dtype
+                )
+                work = work * signs[:, None]
+            out[rs:re, c0:c1] = work
     return out, meta
 
 

@@ -587,8 +587,17 @@ def dequantize(t: QuantTensor) -> np.ndarray:
     return out[:k0, :]
 
 
-def dequantize_torch(t: QuantTensor, *, device: str | object = "cuda"):
-    """Torch codebook gather → rotated-space ``(K, N)`` on ``device``."""
+def dequantize_torch(
+    t: QuantTensor,
+    *,
+    device: str | object = "cuda",
+    chunk_cols: int | None = None,
+):
+    """Torch codebook gather → rotated-space ``(K, N)`` on ``device``.
+
+    Large embeddings are gathered column-chunked to avoid allocating a full
+    ``(K, N)`` long index tensor on device (vocab×hidden can be multi-GB).
+    """
     import torch
 
     k0, n = t.shape
@@ -615,20 +624,34 @@ def dequantize_torch(t: QuantTensor, *, device: str | object = "cuda"):
         raise ShapeMismatchError(
             f"unpacked {indices.size} indices, expected {expected} for shape work ({k_work},{n})"
         )
+    idx_mat = indices.reshape(k_work, n)
     dev = torch.device(device)
-    idx = torch.as_tensor(indices.reshape(k_work, n), device=dev, dtype=torch.long)
     cb = torch.as_tensor(cb_arr, device=dev, dtype=torch.float32)
+
+    if chunk_cols is None:
+        # Keep index chunk under ~64M elements.
+        chunk_cols = max(1, min(n, (64 << 20) // max(k_work, 1)))
+    out = torch.empty((k0, n), device=dev, dtype=torch.float32)
     if share == "group":
         g_ids = torch.arange(k_work, device=dev) // gs
-        out = cb[g_ids[:, None].expand_as(idx), idx]
+        for c0 in range(0, n, chunk_cols):
+            c1 = min(n, c0 + chunk_cols)
+            idx = torch.as_tensor(idx_mat[:, c0:c1], device=dev, dtype=torch.long)
+            gathered = cb[g_ids[:, None].expand_as(idx), idx]
+            out[:, c0:c1] = gathered[:k0]
     else:
-        out = torch.empty((k_work, n), device=dev, dtype=torch.float32)
-        for g in range(num_groups):
-            rows = slice(g * gs, (g + 1) * gs)
-            # out[r, j] = cb[g, j, idx[r, j]]
-            jj = torch.arange(n, device=dev)[None, :].expand(gs, n)
-            out[rows] = cb[g, jj, idx[rows]]
-    return out[:k0]
+        for c0 in range(0, n, chunk_cols):
+            c1 = min(n, c0 + chunk_cols)
+            width = c1 - c0
+            idx = torch.as_tensor(idx_mat[:, c0:c1], device=dev, dtype=torch.long)
+            chunk = torch.empty((k_work, width), device=dev, dtype=torch.float32)
+            for g in range(num_groups):
+                rows = slice(g * gs, (g + 1) * gs)
+                jj = torch.arange(c0, c1, device=dev)[None, :].expand(gs, width)
+                chunk[rows] = cb[g, jj, idx[rows]]
+            out[:, c0:c1] = chunk[:k0]
+    return out
+
 
 
 def reconstruct_weight(t: QuantTensor, seed: int | None = None) -> np.ndarray:
@@ -653,7 +676,8 @@ def reconstruct_weight_torch(
     """CUDA/CPU-torch reconstruct (same math as :func:`reconstruct_weight`).
 
     Returns a float32 tensor on ``device``. Prefer this in diag inject when the
-    HF model already lives on GPU to avoid host FWHT.
+    HF model already lives on GPU to avoid host FWHT. Large matrices are
+    processed column-chunked.
     """
     from . import hadamard
 
