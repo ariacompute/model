@@ -6,8 +6,10 @@ prompt_tokens=28 from the old Gemma-3 `<start_of_turn>` markers). Uses official
 Gemma apply_chat_template plus the engine gemma4_it string (`<|turn>` / `<turn|>`)
 so prompt ids can be compared.
 
-Gemma-4-E2B-it is a VL wrapper (Gemma4ForConditionalGeneration); inject still
-targets language tensors. Tokenizer is loaded from --hf (not the Aria bundle).
+Gemma-4-E2B-it is a VL wrapper (Gemma4ForConditionalGeneration). Chat diag
+injects **text LM weights only** by default (skips audio_tower / vision_*);
+use --inject-all to reconstruct every tower (much slower). Tokenizer is loaded
+from --hf (not the Aria bundle).
 
 H200 example (from model repo root):
 
@@ -197,29 +199,63 @@ def _alias_keys(name: str) -> list[str]:
     return list(dict.fromkeys(alts))
 
 
-def _inject_bundle(model, tensors: dict, hadamard_seed: int) -> dict:
+# Chat diag only needs the text decoder. Full E2B Aria bundles also ship
+# vision/audio towers (~thousands of tensors); reconstructing them dominates wall time.
+_NON_TEXT_MARKERS = (
+    "audio_tower",
+    "vision_tower",
+    "vision_model",
+    "multi_modal_projector",
+    "vision_projector",
+    "audio_projector",
+    "embed_audio",
+    "embed_vision",
+)
+
+
+def _is_text_weight(name: str) -> bool:
+    lower = name.lower()
+    return not any(m in lower for m in _NON_TEXT_MARKERS)
+
+
+def _inject_bundle(
+    model,
+    tensors: dict,
+    hadamard_seed: int,
+    *,
+    text_only: bool = True,
+) -> dict:
     """Copy reconstruct + raw 1D tensors into matching HF keys (with VL aliases).
 
-    Full E2B reconstruct is CPU-heavy (Hadamard unrotate per matrix) and can take
-    many minutes with no GPU activity — not a hang.
+    By default skip vision/audio towers — chat compare only needs the LM. Full
+    E2B reconstruct of every tower is CPU-heavy and can take tens of minutes.
     """
     import numpy as np
     import torch
 
     from common import quant as quant_mod
 
+    if text_only:
+        skipped = [n for n in tensors if not _is_text_weight(n)]
+        work = {n: t for n, t in tensors.items() if _is_text_weight(n)}
+    else:
+        skipped = []
+        work = tensors
+
     sd = model.state_dict()
     n_quant = n_raw = n_shape = 0
     unmatched: list[str] = []
-    n_total = len(tensors)
+    n_total = len(work)
     t0 = time.perf_counter()
     print(
-        f"injecting {n_total} bundle tensors (CPU reconstruct_weight; may take several minutes) …",
+        f"injecting {n_total}/{len(tensors)} tensors "
+        f"(text_only={text_only}, skipped_non_text={len(skipped)}; "
+        "CPU reconstruct_weight) …",
         file=sys.stderr,
         flush=True,
     )
     with torch.no_grad():
-        for i, (name, obj) in enumerate(tensors.items(), 1):
+        for i, (name, obj) in enumerate(work.items(), 1):
             if i == 1 or i % 25 == 0 or i == n_total:
                 elapsed = time.perf_counter() - t0
                 print(
@@ -264,7 +300,10 @@ def _inject_bundle(model, tensors: dict, hadamard_seed: int) -> dict:
         "n_bundle_raw": n_bundle_raw,
         "n_shape_mismatch": n_shape,
         "n_unmatched": len(unmatched),
+        "n_skipped_non_text": len(skipped),
+        "text_only": text_only,
         "unmatched_sample": unmatched[:20],
+        "skipped_non_text_sample": skipped[:12],
         "sd_n_tensors": len(sd),
     }
 
@@ -297,6 +336,11 @@ def main() -> int:
     p.add_argument("--max-new-tokens", type=int, default=32)
     p.add_argument("--user", default="Hello")
     p.add_argument("--report", default=None)
+    p.add_argument(
+        "--inject-all",
+        action="store_true",
+        help="Also reconstruct vision/audio towers (slow; default is text LM only)",
+    )
     args = p.parse_args()
 
     device = _pick_device(args.device)
@@ -342,7 +386,7 @@ def main() -> int:
     base = _load_gemma(torch, args.hf, device)
     print("  [2/2] fp32 shell for reconstruct inject …", file=sys.stderr, flush=True)
     quant_m = _load_gemma(torch, args.hf, device)
-    inject = _inject_bundle(quant_m, tensors, seed)
+    inject = _inject_bundle(quant_m, tensors, seed, text_only=not args.inject_all)
     n_inj = int(inject["n_injected_quant"])
 
     print("generate: HF chat template on fp32 …", file=sys.stderr, flush=True)
