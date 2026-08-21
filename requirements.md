@@ -63,7 +63,7 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 | 4 | int8 | **仅**码本 8-bit；无对称 int8 / GPTQ 旁路 |
 | 5 | 混合精度 | §3.4（`2.54`/`3.26` 层数；`1.5` 参数加权） |
 | 6 | Bundle | 流式 `BundleWriter`；`format_version=2`；VL 全量 2D（含 vision） |
-| 7 | 旁路 | 仅 ndim==2 码本；1D raw fp16/fp32 |
+| 7 | 旁路 | 仅 ndim==2 码本；**ndim&lt;2**（含 0-d / `[1]`）一律 **raw** fp16/fp32。Gemma-4 每层 **`layers.{i}.layer_scalar`**（JAX `skip_scale`，无 `.weight` 后缀）必须写入 bundle，禁止因非 2D / 无 `.weight` 跳过；engine 按层乘残差（见 engine §3.3.2） |
 | 8 | 主机 | 参考：**H200**（16 vCPU / 200 GiB / 141 GiB）或 **RTX PRO 6000**（24 vCPU / 218 GiB / 96 GiB）；`runtime.py` 按 RAM/VRAM 定预算；CUDA 时 `group`→`lloyd_max_batched_torch`，`channel`→`lloyd_max_columns_torch` |
 
 ### 2.1 非目标
@@ -94,7 +94,7 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 ### 3.5–3.8 bundle / hf / cli
 - `format_version=**2**`；`quantization` label 含 **`q8`**。
 - CLI：`--bits` 接受 `8`；其余标志不变。
-- 流式：`load_model_info` →（若 `1.5`）加权分配 → `stream_weights` 逐张量量化。
+- 流式：`load_model_info` →（若 `1.5`）加权分配 → `stream_weights` 逐张量量化。ndim&lt;2 走 raw（含 Gemma-4 `layer_scalar`）。
 
 ### 3.9 `config_from_hf` 扩展（与 engine §3.3.1 协同）
 
@@ -172,3 +172,4 @@ Legacy `format_version<2`（全局 pad-crop）仍可报 `rel_rmse_orig_zeropad` 
 - [x] A+B 审计：独立 `audit_cli`；阈值仅报告；text vs VLA 分流
 - [x] Hadamard **blocked**（无全局 pad-crop）；`format_version=2`；与 engine HDM 契约对齐
 - [x] §3.9 `config_from_hf` 扩展字段（head_dim / layer_types / rope_parameters / block_ff_dim / VLA 几何）可接受
+- [x] Gemma-4 `layer_scalar`（0-d/`[1]` raw，无 `.weight`）写入 bundle、不量化；与 engine §3.3.2 对齐可接受
