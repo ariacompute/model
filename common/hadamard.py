@@ -101,6 +101,88 @@ def fwht_inplace(a: np.ndarray) -> None:
     a *= np.float32(1.0 / np.sqrt(n))
 
 
+def fwht_torch(a: "object") -> "object":
+    """Batched FWHT along dim 0 for a ``(n, ...)`` torch tensor (n power of two).
+
+    Returns a new tensor; does not mutate ``a``. Normalizes by ``1/sqrt(n)``.
+    """
+    import torch
+
+    if not isinstance(a, torch.Tensor):
+        raise QuantError("fwht_torch expects a torch.Tensor")
+    if a.ndim < 1:
+        raise QuantError("fwht expects at least 1D")
+    n = int(a.shape[0])
+    if n < 1 or (n & (n - 1)) != 0:
+        raise QuantError(f"fwht leading dim must be power-of-two, got {n}")
+    if n == 1:
+        return a.clone()
+    out = a.to(dtype=torch.float32).contiguous().clone()
+    shape = tuple(out.shape)
+    cols = int(out.numel() // n)
+    h = 1
+    while h < n:
+        x = out.view(n // (2 * h), 2, h, cols)
+        u = x[:, 0].clone()
+        v = x[:, 1].clone()
+        x[:, 0].copy_(u + v)
+        x[:, 1].copy_(u - v)
+        h *= 2
+    out.view(n, cols).mul_(1.0 / float(n) ** 0.5)
+    return out.view(shape)
+
+
+def hadamard_unrotate_torch(
+    W_rot: "object",
+    *,
+    seed: int | None = None,
+    device: str | object | None = None,
+) -> tuple["object", dict]:
+    """Torch blocked unrotate (same tiles/signs as :func:`hadamard_unrotate`)."""
+    import torch
+
+    if not isinstance(W_rot, torch.Tensor):
+        W_rot = torch.as_tensor(np.asarray(W_rot, dtype=np.float32))
+    if device is not None:
+        W_rot = W_rot.to(device)
+    W_rot = W_rot.to(dtype=torch.float32).contiguous()
+    if W_rot.ndim != 2:
+        raise QuantError(f"hadamard_unrotate_torch expects 2D, got {tuple(W_rot.shape)}")
+    k, n = int(W_rot.shape[0]), int(W_rot.shape[1])
+    blocks = pow2_tile_blocks(k)
+    meta: dict = {
+        "seed": seed,
+        "row_dim": k,
+        "col_dim": n,
+        "row_pad": 0,
+        "col_pad": 0,
+        "axis": 0,
+        "applied": True,
+        "chunked": False,
+        "mode": "blocked",
+        "blocks": blocks,
+        "inverse": True,
+        "backend": "torch",
+    }
+    if k == 1:
+        meta["identity"] = True
+        return W_rot.clone(), meta
+
+    signs_map = _block_signs(seed, blocks)
+    out = torch.empty_like(W_rot)
+    for b in blocks:
+        rs = int(b["start"])
+        sz = int(b["size"])
+        re = rs + sz
+        work = W_rot[rs:re].contiguous()
+        work = fwht_torch(work)
+        if signs_map is not None:
+            signs = torch.as_tensor(signs_map[rs], device=work.device, dtype=work.dtype)
+            work = work * signs[:, None]
+        out[rs:re] = work
+    return out, meta
+
+
 def portable_block_signs(seed: int, start: int, size: int) -> np.ndarray:
     """Deterministic ±1 for a block; must match engine ``portable_block_signs``.
 

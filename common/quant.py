@@ -587,6 +587,50 @@ def dequantize(t: QuantTensor) -> np.ndarray:
     return out[:k0, :]
 
 
+def dequantize_torch(t: QuantTensor, *, device: str | object = "cuda"):
+    """Torch codebook gather → rotated-space ``(K, N)`` on ``device``."""
+    import torch
+
+    k0, n = t.shape
+    gs = t.group_size
+    cb_arr = t.codebook.astype(np.float32)
+    share = getattr(t, "codebook_share", None) or (
+        "group" if cb_arr.ndim == 2 else "channel"
+    )
+    if share == "group":
+        if cb_arr.ndim != 2:
+            raise ShapeMismatchError(f"group codebook must be 2D, got {cb_arr.shape}")
+        num_groups = int(cb_arr.shape[0])
+    else:
+        if cb_arr.ndim != 3:
+            raise ShapeMismatchError(f"channel codebook must be 3D, got {cb_arr.shape}")
+        num_groups, n_cb, kc = (int(x) for x in cb_arr.shape)
+        if n_cb != n or kc != (1 << t.bits):
+            raise ShapeMismatchError(f"codebook shape {cb_arr.shape} incompatible with N={n}")
+
+    k_work = num_groups * gs
+    expected = k_work * n
+    indices = pack.unpack_indices(t.packed_indices, expected, t.bits)
+    if indices.size != expected:
+        raise ShapeMismatchError(
+            f"unpacked {indices.size} indices, expected {expected} for shape work ({k_work},{n})"
+        )
+    dev = torch.device(device)
+    idx = torch.as_tensor(indices.reshape(k_work, n), device=dev, dtype=torch.long)
+    cb = torch.as_tensor(cb_arr, device=dev, dtype=torch.float32)
+    if share == "group":
+        g_ids = torch.arange(k_work, device=dev) // gs
+        out = cb[g_ids[:, None].expand_as(idx), idx]
+    else:
+        out = torch.empty((k_work, n), device=dev, dtype=torch.float32)
+        for g in range(num_groups):
+            rows = slice(g * gs, (g + 1) * gs)
+            # out[r, j] = cb[g, j, idx[r, j]]
+            jj = torch.arange(n, device=dev)[None, :].expand(gs, n)
+            out[rows] = cb[g, jj, idx[rows]]
+    return out[:k0]
+
+
 def reconstruct_weight(t: QuantTensor, seed: int | None = None) -> np.ndarray:
     """Dequant rotated codebook then blocked unrotate → original-space ``(K, N)``."""
     from . import hadamard
@@ -597,4 +641,26 @@ def reconstruct_weight(t: QuantTensor, seed: int | None = None) -> np.ndarray:
     out, meta = hadamard.hadamard_unrotate(recon_rot, axis=0, seed=seed)
     if not meta.get("applied"):
         raise QuantError("Hadamard unrotate failed during reconstruct_weight")
+    return out
+
+
+def reconstruct_weight_torch(
+    t: QuantTensor,
+    seed: int | None = None,
+    *,
+    device: str | object = "cuda",
+):
+    """CUDA/CPU-torch reconstruct (same math as :func:`reconstruct_weight`).
+
+    Returns a float32 tensor on ``device``. Prefer this in diag inject when the
+    HF model already lives on GPU to avoid host FWHT.
+    """
+    from . import hadamard
+
+    if seed is None:
+        seed = t.hadamard_meta.get("seed")
+    recon_rot = dequantize_torch(t, device=device)
+    out, meta = hadamard.hadamard_unrotate_torch(recon_rot, seed=seed, device=device)
+    if not meta.get("applied"):
+        raise QuantError("Hadamard unrotate failed during reconstruct_weight_torch")
     return out

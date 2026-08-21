@@ -137,6 +137,20 @@ class TestQuant(unittest.TestCase):
         self.assertEqual(quant.quantization_label(2.54), "q2.54")
         self.assertEqual(quant.quantization_label(1.5), "q1.5")
 
+    def test_reconstruct_weight_torch_matches_numpy(self):
+        try:
+            import torch
+        except ImportError:
+            self.skipTest("torch not installed")
+        rng = np.random.default_rng(7)
+        W = rng.normal(size=(48, 32)).astype(np.float32)
+        t = quant.quantize_weight(W, bits=4, group_size=16, seed=3, codebook_share="group")
+        cpu = quant.reconstruct_weight(t, seed=3)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        gpu = quant.reconstruct_weight_torch(t, seed=3, device=device).detach().cpu().numpy()
+        err = _rel_rmse(cpu, gpu)
+        self.assertLessEqual(err, 1e-5, msg=f"device={device} rel_rmse={err}")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,8 +38,9 @@ def _inject_bundle_weights(
 ) -> int:
     """Copy inverse-Hadamard dequant weights into matching ``state_dict`` keys.
 
-    When ``progress=True``, print CPU reconstruct progress to stderr (full-model
-    inject can take minutes with little GPU activity — not a hang).
+    When ``progress=True``, print reconstruct progress to stderr (full-model
+    inject can take minutes — not a hang). Uses CUDA reconstruct when the
+    model parameters live on GPU.
     """
     import sys
     import time
@@ -50,10 +51,16 @@ def _inject_bundle_weights(
     n = 0
     n_total = len(tensors)
     t0 = time.perf_counter()
+    # Prefer GPU reconstruct when HF weights are already on CUDA.
+    sample = next(iter(sd.values()), None)
+    recon_device = None
+    if sample is not None and getattr(sample, "is_cuda", False):
+        recon_device = sample.device
+    backend = f"torch:{recon_device}" if recon_device is not None else "numpy"
     if progress:
         print(
-            f"injecting {n_total} bundle tensors (CPU reconstruct_weight; "
-            "may take several minutes) …",
+            f"injecting {n_total} bundle tensors "
+            f"(reconstruct_weight backend={backend}) …",
             file=sys.stderr,
             flush=True,
         )
@@ -70,15 +77,25 @@ def _inject_bundle_weights(
                 continue
             if name not in sd:
                 continue
-            recon = quant.reconstruct_weight(obj, hadamard_seed)
             t = sd[name]
-            if tuple(t.shape) != recon.shape:
-                continue
-            t.copy_(torch.from_numpy(np.asarray(recon, dtype=np.float32)).to(dtype=t.dtype))
+            if recon_device is not None:
+                recon = quant.reconstruct_weight_torch(
+                    obj, hadamard_seed, device=recon_device
+                )
+                if tuple(t.shape) != tuple(recon.shape):
+                    continue
+                t.copy_(recon.to(dtype=t.dtype))
+            else:
+                recon = quant.reconstruct_weight(obj, hadamard_seed)
+                if tuple(t.shape) != recon.shape:
+                    continue
+                t.copy_(
+                    torch.from_numpy(np.asarray(recon, dtype=np.float32)).to(dtype=t.dtype)
+                )
             n += 1
     if progress:
         print(
-            f"inject done in {time.perf_counter() - t0:.1f}s (injected={n})",
+            f"inject done in {time.perf_counter() - t0:.1f}s (injected={n}, backend={backend})",
             file=sys.stderr,
             flush=True,
         )

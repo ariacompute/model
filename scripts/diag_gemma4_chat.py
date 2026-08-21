@@ -8,8 +8,9 @@ so prompt ids can be compared.
 
 Gemma-4-E2B-it is a VL wrapper (Gemma4ForConditionalGeneration). Chat diag
 injects **text LM weights only** by default (skips audio_tower / vision_*);
-use --inject-all to reconstruct every tower (much slower). Tokenizer is loaded
-from --hf (not the Aria bundle).
+use --inject-all to reconstruct every tower (much slower). When the HF model is
+on CUDA, inject uses ``reconstruct_weight_torch`` (GPU FWHT) instead of numpy.
+Tokenizer is loaded from --hf (not the Aria bundle).
 
 H200 example (from model repo root):
 
@@ -247,10 +248,13 @@ def _inject_bundle(
     unmatched: list[str] = []
     n_total = len(work)
     t0 = time.perf_counter()
+    sample = next(iter(sd.values()), None)
+    recon_device = sample.device if sample is not None and getattr(sample, "is_cuda", False) else None
+    backend = f"torch:{recon_device}" if recon_device is not None else "numpy"
     print(
         f"injecting {n_total}/{len(tensors)} tensors "
         f"(text_only={text_only}, skipped_non_text={len(skipped)}; "
-        "CPU reconstruct_weight) …",
+        f"reconstruct_weight backend={backend}) …",
         file=sys.stderr,
         flush=True,
     )
@@ -269,12 +273,26 @@ def _inject_bundle(
                 continue
             t = sd[key]
             if isinstance(obj, quant_mod.QuantTensor):
-                recon = quant_mod.reconstruct_weight(obj, hadamard_seed)
-                if tuple(t.shape) != recon.shape:
-                    n_shape += 1
-                    unmatched.append(f"{name} shape {recon.shape} vs sd {tuple(t.shape)}")
-                    continue
-                t.copy_(torch.from_numpy(np.asarray(recon, dtype=np.float32)).to(dtype=t.dtype))
+                if recon_device is not None:
+                    recon_t = quant_mod.reconstruct_weight_torch(
+                        obj, hadamard_seed, device=recon_device
+                    )
+                    if tuple(t.shape) != tuple(recon_t.shape):
+                        n_shape += 1
+                        unmatched.append(
+                            f"{name} shape {tuple(recon_t.shape)} vs sd {tuple(t.shape)}"
+                        )
+                        continue
+                    t.copy_(recon_t.to(dtype=t.dtype))
+                else:
+                    recon = quant_mod.reconstruct_weight(obj, hadamard_seed)
+                    if tuple(t.shape) != recon.shape:
+                        n_shape += 1
+                        unmatched.append(f"{name} shape {recon.shape} vs sd {tuple(t.shape)}")
+                        continue
+                    t.copy_(
+                        torch.from_numpy(np.asarray(recon, dtype=np.float32)).to(dtype=t.dtype)
+                    )
                 n_quant += 1
             else:
                 arr = np.asarray(obj)
@@ -286,7 +304,7 @@ def _inject_bundle(
                 n_raw += 1
     print(
         f"inject done in {time.perf_counter() - t0:.1f}s "
-        f"(quant={n_quant} raw={n_raw} unmatched={len(unmatched)})",
+        f"(quant={n_quant} raw={n_raw} unmatched={len(unmatched)} backend={backend})",
         file=sys.stderr,
         flush=True,
     )
@@ -302,6 +320,7 @@ def _inject_bundle(
         "n_unmatched": len(unmatched),
         "n_skipped_non_text": len(skipped),
         "text_only": text_only,
+        "reconstruct_backend": backend,
         "unmatched_sample": unmatched[:20],
         "skipped_non_text_sample": skipped[:12],
         "sd_n_tensors": len(sd),

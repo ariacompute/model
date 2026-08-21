@@ -85,6 +85,7 @@ VLA（OpenVLA / OpenPI π₀·π₀.₅ / LingBot）：默认量化全部 2D（�
 - `pack` / `unpack`：1–4 为 LSB-first 位打包；**8-bit 为每索引 1 字节**（`uint8` 原始字节，等价于满字节打包）。
 - `quantize_weight` / `dequantize`：支持 `bits=8`；索引仍存 `uint8`（0–255）；`row_pad` **仅** group 对齐 pad。
 - `reconstruct_weight(t, seed)`：dequant → blocked unrotate → 原域 `(K,N)`。
+- `reconstruct_weight_torch(t, seed, device=…)`：同数学的 torch/CUDA 路径（diag inject 在模型已在 GPU 时自动选用）。
 - `codebook_share` group/channel 行为不变。
 
 ### 3.4 混合精度
